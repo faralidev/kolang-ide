@@ -1,6 +1,6 @@
 {
   "name": "kolang-ide",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Kolang IDE — a simple desktop editor for the Kolang Persian programming language",
   "main": "main.js",
   "license": "MIT",
