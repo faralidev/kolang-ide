@@ -1,5 +1,21 @@
 name: Release
 
+# Builds macOS (universal arm64+x64) and Windows (x64) installers and publishes
+# them as a GitHub Release. Both jobs fetch the pre-built `kolang` interpreter
+# and `kolang-linter` binaries from their respective upstream repos and bundle
+# them into the app's Resources/bin/ (via electron-builder extraResources from
+# native/${os}/), so end users get a working app with no extra setup.
+#
+# Trigger: push a tag `v*.*.*`, or run manually from the Actions tab.
+#
+# The macOS job downloads BOTH darwin-arm64 and darwin-amd64 builds of each
+# binary and stitches them into a single universal binary with `lipo -create`
+# (matching what native/README.md documents).
+#
+# Code signing is optional: if the signing secrets are not set, builds are
+# unsigned (macOS users right-click → Open the first time; Windows SmartScreen
+# may warn). See README → "Code signing (optional)".
+
 on:
   push:
     tags: ['v*.*.*']
@@ -7,6 +23,13 @@ on:
 
 permissions:
   contents: write
+
+# --- Bump these when a new interpreter/linter release should be bundled -----
+# Pinned deliberately (not "latest") so a release is reproducible. Update both
+# values when you want to ship a newer interpreter/linter.
+env:
+  KOLANG_VERSION: v1.1.0
+  KOLANG_LINTER_VERSION: v1.0.0
 
 jobs:
   build-mac:
@@ -17,6 +40,31 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Download kolang + kolang-linter (darwin arm64 + amd64)
+        run: |
+          set -e
+          mkdir -p native/darwin /tmp/bin
+          # Interpreter
+          gh release download "${KOLANG_VERSION}" \
+            --repo faralidev/kolang \
+            --pattern 'kolang-darwin-arm64' --pattern 'kolang-darwin-amd64' \
+            --dir /tmp/bin
+          # Linter
+          gh release download "${KOLANG_LINTER_VERSION}" \
+            --repo faralidev/kolang-linter \
+            --pattern 'kolang-linter-darwin-arm64' --pattern 'kolang-linter-darwin-amd64' \
+            --dir /tmp/bin
+          # Stitch universal binaries
+          lipo -create -output native/darwin/kolang        /tmp/bin/kolang-darwin-arm64        /tmp/bin/kolang-darwin-amd64
+          lipo -create -output native/darwin/kolang-linter /tmp/bin/kolang-linter-darwin-arm64 /tmp/bin/kolang-linter-darwin-amd64
+          chmod +x native/darwin/kolang native/darwin/kolang-linter
+          # Sanity check
+          lipo -info native/darwin/kolang
+          lipo -info native/darwin/kolang-linter
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - run: npm ci
       - run: npm run build
       - name: Build macOS universal (arm64+x64) dmg+zip
@@ -39,6 +87,27 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Download kolang + kolang-linter (windows amd64)
+        shell: bash
+        run: |
+          set -e
+          mkdir -p native/win32
+          gh release download "${KOLANG_VERSION}" \
+            --repo faralidev/kolang \
+            --pattern 'kolang-windows-amd64.exe' \
+            --dir native/win32
+          gh release download "${KOLANG_LINTER_VERSION}" \
+            --repo faralidev/kolang-linter \
+            --pattern 'kolang-linter-windows-amd64.exe' \
+            --dir native/win32
+          # electron-builder/main.js expect the names: kolang.exe / kolang-linter.exe
+          mv native/win32/kolang-windows-amd64.exe        native/win32/kolang.exe
+          mv native/win32/kolang-linter-windows-amd64.exe native/win32/kolang-linter.exe
+          ls -la native/win32
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - run: npm ci
       - run: npm run build
       - name: Build Windows NSIS x64
