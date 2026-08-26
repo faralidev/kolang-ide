@@ -88,9 +88,6 @@
         "dmg",
         "zip"
       ],
-      "arch": [
-        "universal"
-      ],
       "icon": "build/icon.icns",
       "category": "public.app-category.developer-tools",
       "hardenedRuntime": true,
@@ -100,9 +97,6 @@
     },
     "win": {
       "target": "nsis",
-      "arch": [
-        "x64"
-      ],
       "icon": "build/icon.ico"
     },
     "nsis": {
