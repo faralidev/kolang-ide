@@ -3,8 +3,10 @@
 // Bundled by esbuild into bundle.js (classic script loaded by index.html);
 // this file is never loaded directly by the page. Mounts the CodeMirror 6
 // editor with the kolang language module, wires toolbar buttons + menu events
-// to window.kolangIDE, and renders program output.
+// to the Tauri backend (invoke API), and renders program output.
 
+import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from '@codemirror/view'
 import { EditorState } from '@codemirror/state'
 import { defaultKeymap, history, historyKeymap, indentWithTab, addCursorAbove, addCursorBelow } from '@codemirror/commands'
@@ -12,7 +14,8 @@ import { bracketMatching, codeFolding, foldGutter, foldKeymap, foldService, inde
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { searchKeymap, highlightSelectionMatches, selectNextOccurrence } from '@codemirror/search'
 import { linter, lintGutter, lintKeymap, forceLinting } from '@codemirror/lint'
-import { kolang, kolangCompletion, kolangTheme } from './kolang-language.js'
+import { kolang } from '@kolang/grammar/codemirror/kolang-syntax.js'
+import { kolangCompletion, kolangTheme } from './kolang-extras.mjs'
 
 document.addEventListener('DOMContentLoaded', () => {
   const editorEl = document.getElementById('editor')
@@ -107,7 +110,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const kolangLinter = linter(async (view) => {
     const code = view.state.doc.toString()
     try {
-      const diags = await window.kolangIDE.runLinter(code)
+      const diags = await invoke("linter_run", { code })
       if (!Array.isArray(diags)) return []
       return diags
         .filter((d) => d.line >= 1 && d.line <= view.state.doc.lines)
@@ -227,7 +230,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const code = view.state.doc.toString()
     try {
-      const result = await window.kolangIDE.run(code)
+      const result = await invoke("kolang_run", { code })
       if (result.stdout) appendOutput(result.stdout, 'out')
       if (result.stderr) appendOutput(result.stderr, 'err')
       appendOutput(`— پایان اجرا (کد: ${result.exitCode}، زمان: ${result.durationMs}ms)\n`, 'muted')
@@ -239,14 +242,14 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function stopCode() {
-    window.kolangIDE.kill()
+    invoke("kolang_kill")
   }
 
   async function openFile() {
     if (dialogBusy) return
     dialogBusy = true
     try {
-      const r = await window.kolangIDE.openFile()
+      const r = await invoke("file_open")
       if (!r) return
       if (r.error) {
         appendOutput('خطا در باز کردن فایل: ' + r.error + '\n', 'err')
@@ -271,7 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // If the file came from the explorer (or was previously saved), write
       // straight back to that path — no save dialog.
       if (currentFilePath) {
-        const res = await window.kolangIDE.writeFile({ filePath: currentFilePath, content })
+        const res = await invoke("fs_write_file", { filePath: currentFilePath, content })
         if (res && res.error) {
           appendOutput('خطا در ذخیره فایل: ' + res.error + '\n', 'err')
           return
@@ -281,7 +284,7 @@ document.addEventListener('DOMContentLoaded', () => {
         forceLinting(view)
         return
       }
-      const p = await window.kolangIDE.saveFile(content)
+      const p = await invoke("file_save", { content })
       if (!p) return
       if (p.error) {
         appendOutput('خطا در ذخیره فایل: ' + p.error + '\n', 'err')
@@ -311,7 +314,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function openFileFromExplorer(path, item) {
     try {
-      const r = await window.kolangIDE.readFile(path)
+      const r = await invoke("fs_read_file", { filePath: path })
       if (r && r.error) {
         appendOutput('خطا در باز کردن فایل: ' + r.error + '\n', 'err')
         return
@@ -375,7 +378,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (!childrenEl.dataset.loaded) {
       try {
-        const res = await window.kolangIDE.listDir(wrapper.dataset.path)
+        const res = await invoke("fs_list_dir", { dirPath: wrapper.dataset.path })
         if (res && res.error) {
           appendOutput('خطا در خواندن پوشه: ' + res.error + '\n', 'err')
           return
@@ -397,7 +400,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function renderExplorer(dirPath, container) {
     container.textContent = ''
     try {
-      const res = await window.kolangIDE.listDir(dirPath)
+      const res = await invoke("fs_list_dir", { dirPath: dirPath })
       if (res && res.error) {
         const msg = document.createElement('div')
         msg.className = 'muted'
@@ -436,7 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   openFolderBtn.addEventListener('click', async () => {
     try {
-      const p = await window.kolangIDE.openFolder()
+      const p = await invoke("fs_open_folder")
       if (p) {
         explorerRoot = p
         expandedDirs.clear()
@@ -453,7 +456,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function showSettingsModal() {
     try {
-      const settings = await window.kolangIDE.getSettings()
+      const settings = await invoke("settings_get")
       kolangPathInput.value = settings.kolangPath || ''
       linterPathInput.value = settings.linterPath || ''
     } catch (err) {
@@ -472,7 +475,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   browseBtn.addEventListener('click', async () => {
     try {
-      const p = await window.kolangIDE.pickKolangPath()
+      const p = await invoke("settings_pick_path")
       if (p) kolangPathInput.value = p
     } catch (err) {
       appendOutput('خطا در انتخاب مسیر: ' + err.message + '\n', 'err')
@@ -481,7 +484,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   browseLinterBtn.addEventListener('click', async () => {
     try {
-      const p = await window.kolangIDE.pickLinterPath()
+      const p = await invoke("settings_pick_linter_path")
       if (p) linterPathInput.value = p
     } catch (err) {
       appendOutput('خطا در انتخاب مسیر لینتر: ' + err.message + '\n', 'err')
@@ -490,10 +493,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   settingsSaveBtn.addEventListener('click', async () => {
     try {
-      await window.kolangIDE.setSettings({
+      await invoke("settings_set", { settings: {
         kolangPath: kolangPathInput.value.trim(),
         linterPath: linterPathInput.value.trim(),
-      })
+      } })
       hideSettingsModal()
       appendOutput('تنظیمات ذخیره شد\n', 'muted')
     } catch (err) {
@@ -545,11 +548,12 @@ document.addEventListener('DOMContentLoaded', () => {
   openBtn.addEventListener('click', openFile)
   saveBtn.addEventListener('click', saveFile)
 
-  window.kolangIDE.onMenuRun(() => runCode())
-  window.kolangIDE.onMenuStop(() => stopCode())
-  window.kolangIDE.onMenuOpen(() => openFile())
-  window.kolangIDE.onMenuSave(() => saveFile())
-  window.kolangIDE.onMenuSettings(() => showSettingsModal())
+  // رویدادهای منو از Tauri (به‌جای IPC الکترون)
+  listen('menu:run', () => runCode())
+  listen('menu:stop', () => stopCode())
+  listen('menu:open', () => openFile())
+  listen('menu:save', () => saveFile())
+  listen('menu:settings', () => showSettingsModal())
 
   // Window-level keyboard shortcuts. Cmd/Ctrl+Enter → run; Cmd/Ctrl+S → save;
   // Cmd/Ctrl+O → open; Cmd/Ctrl+, → settings. (Menu accelerators also fire

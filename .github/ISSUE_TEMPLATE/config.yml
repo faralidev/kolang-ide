@@ -1,8 +1,0 @@
-blank_issues_enabled: false
-contact_links:
-  - name: 💬 Ask a question / start a discussion
-    url: https://github.com/faralidev/kolang-ide/discussions
-    about: For questions, ideas, and general chat, please use Discussions instead of opening an issue.
-  - name: 🔒 Report a security vulnerability
-    url: https://github.com/faralidev/kolang-ide/security/policy
-    about: Please don't open issues for security problems — see our security policy.

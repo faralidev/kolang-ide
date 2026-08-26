@@ -1,36 +1,10 @@
-# Dependencies
 node_modules/
-
-# Build artifacts
+dist/
 bundle.js
 bundle.js.map
-dist/
-out/
-
-# Bundled native binaries (built elsewhere, dropped in before packaging)
-native/darwin/kolang
-native/darwin/kolang-linter
-native/win32/kolang.exe
-native/win32/kolang-linter.exe
-
-# App icon working files (the canonical icon.png/.icns/.ico + logo.svg ARE
-# committed; these are intermediate render artifacts):
-build/icon-*.png
-build/icon.iconset/
-
-# OS junk
-.DS_Store
-Thumbs.db
-
-# Logs
+target/
+bin/
 *.log
-npm-debug.log*
-
-# Editor / IDE
+.DS_Store
 .vscode/
 .idea/
-*.swp
-
-# Local env
-.env
-.env.local
