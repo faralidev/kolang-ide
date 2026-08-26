@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="fa">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>کلنگ — ویرایشگر</title>
+  <style>
+    :root {
+      /* Catppuccin Mocha palette */
+      --bg: #1e1e2e;
+      --surface: #313244;
+      --text: #cdd6f4;
+      --accent: #cba6f7;
+      --success: #a6e3a1;
+      --error: #f38ba8;
+      --muted: #7f849c;
+      --border: #45475a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Vazirmatn", "SF Pro Display", "Segoe UI", Tahoma, system-ui, sans-serif;
+      font-size: 14px;
+      overflow: hidden;
+    }
+
+    #app {
+      display: flex;
+      flex-direction: row;
+      height: 100vh;
+    }
+
+    /* ---- Sidebar (explorer) — first flex child → right side in RTL ---- */
+    #sidebar {
+      width: 240px;
+      flex: 0 0 240px;
+      background: #181825;
+      border-left: 1px solid #313244;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .sidebar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      border-bottom: 1px solid #313244;
+    }
+
+    .sidebar-title {
+      color: #cdd6f4;
+      font-weight: bold;
+      font-size: 13px;
+    }
+
+    .btn-small {
+      padding: 3px 8px;
+      font-size: 13px;
+    }
+
+    #explorer {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 4px 0;
+      direction: rtl;
+      text-align: right;
+      font-size: 13px;
+    }
+
+    .tree-item {
+      padding: 3px 12px 3px 8px;
+      cursor: pointer;
+      color: #cdd6f4;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .tree-item:hover { background: #313244; }
+    .tree-item.active { background: #313244; color: #cba6f7; }
+    .tree-item.dir { color: #f9e2af; font-weight: 500; }
+    .tree-children { padding-right: 16px; }
+    .tree-icon { font-size: 14px; opacity: 0.8; }
+
+    /* ---- Main column (toolbar + editor + output) ---- */
+    #main {
+      flex: 1;
+      min-width: 0;
+      min-height: 0; /* critical for flex children to scroll */
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* ---- Toolbar ---- */
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex: 0 0 auto;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .btn:hover { background: #3a3b4e; border-color: var(--muted); }
+    .btn:active { transform: translateY(1px); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-run {
+      background: var(--success);
+      border-color: var(--success);
+      color: #1e1e2e;
+      font-weight: 600;
+    }
+    .btn-run:hover { background: #b7e7b3; border-color: #b7e7b3; }
+
+    .btn-stop { background: var(--error); border-color: var(--error); color: #1e1e2e; font-weight: 600; }
+    .btn-stop:hover { background: #f5a9c0; border-color: #f5a9c0; }
+
+    .btn-accent { color: var(--accent); }
+
+    .spacer { flex: 1 1 auto; }
+
+    #status {
+      color: var(--muted);
+      font-size: 12px;
+      padding-inline-start: 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ---- Editor / output split ---- */
+    #editor {
+      flex: 1;
+      min-height: 0; /* CRITICAL for flex children to scroll */
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+      overflow: hidden;
+    }
+
+    #output {
+      flex: 0 0 220px;
+      height: 220px;
+      min-height: 0;
+      overflow-y: auto;
+      background: #181825;
+      border-top: 1px solid var(--border);
+      padding: 10px 12px;
+      font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* Scrollbars for output + explorer */
+    #output::-webkit-scrollbar, #explorer::-webkit-scrollbar { width: 10px; }
+    #output::-webkit-scrollbar-track, #explorer::-webkit-scrollbar-track { background: #181825; }
+    #output::-webkit-scrollbar-thumb, #explorer::-webkit-scrollbar-thumb { background: #45475a; border-radius: 5px; }
+    #output::-webkit-scrollbar-thumb:hover, #explorer::-webkit-scrollbar-thumb:hover { background: #585b70; }
+
+    #output .out { color: var(--text); }
+    #output .err { color: var(--error); }
+    #output .muted { color: var(--muted); }
+
+    /* ---- Settings modal ---- */
+    .modal {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0, 0, 0, 0.55);
+      z-index: 1000;
+    }
+
+    .modal.hidden { display: none; }
+
+    .modal-content {
+      width: 480px;
+      max-width: 90vw;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 24px;
+    }
+
+    .modal-content h2 {
+      font-size: 16px;
+      margin-bottom: 14px;
+      color: var(--text);
+    }
+
+    .modal-content label {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .path-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+
+    .path-row input {
+      flex: 1 1 auto;
+      min-width: 0;
+      padding: 8px 10px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+      font-size: 12px;
+      direction: ltr;
+      text-align: left;
+    }
+
+    .path-row input:focus { outline: none; border-color: var(--accent); }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    /* ---- Shortcuts modal ---- */
+    .shortcuts-table {
+      width: 100%;
+      border-collapse: collapse;
+      direction: rtl;
+    }
+
+    .shortcuts-table td {
+      padding: 6px 10px;
+      border-bottom: 1px solid #313244;
+      text-align: right;
+      font-size: 13px;
+    }
+
+    .shortcuts-table kbd {
+      background: #313244;
+      border: 1px solid #45475a;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+      font-size: 12px;
+      color: #cdd6f4;
+      direction: ltr;
+      display: inline-block;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">کاوشگر</span>
+        <button id="open-folder-btn" class="btn btn-small" title="باز کردن پوشه">📂</button>
+      </div>
+      <div id="explorer"><span class="muted">یک پوشه باز کنید</span></div>
+    </div>
+
+    <div id="main">
+      <div id="toolbar">
+        <button id="run-btn" class="btn btn-run" title="اجرا">▶ اجرا</button>
+        <button id="stop-btn" class="btn btn-stop" title="توقف" disabled>■ توقف</button>
+        <button id="open-btn" class="btn btn-accent" title="باز کردن فایل">📂 باز کردن</button>
+        <button id="save-btn" class="btn btn-accent" title="ذخیره فایل">💾 ذخیره</button>
+        <button id="settings-btn" class="btn btn-accent" title="تنظیمات">⚙ تنظیمات</button>
+        <button id="shortcuts-btn" class="btn btn-accent" title="میان‌برها">⌨ میان‌برها</button>
+        <div class="spacer"></div>
+        <span id="status">آماده</span>
+      </div>
+
+      <div id="editor"></div>
+
+      <div id="output"><span class="muted">خروجی برنامه در اینجا نمایش داده می‌شود…</span></div>
+    </div>
+
+    <div id="settings-modal" class="modal hidden">
+      <div class="modal-content">
+        <h2>تنظیمات</h2>
+        <label>مسیر مفسر کلنگ:</label>
+        <div class="path-row">
+          <input type="text" id="kolang-path-input" placeholder="/path/to/kolang" />
+          <button id="browse-btn" class="btn">...</button>
+        </div>
+        <label>مسیر لینتر کلنگ:</label>
+        <div class="path-row">
+          <input type="text" id="linter-path-input" placeholder="/path/to/kolang-linter" />
+          <button id="browse-linter-btn" class="btn">...</button>
+        </div>
+        <div class="modal-actions">
+          <button id="settings-save" class="btn btn-run">ذخیره</button>
+          <button id="settings-cancel" class="btn">انصراف</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="shortcuts-modal" class="modal hidden">
+      <div class="modal-content">
+        <h2>میان‌برهای صفحه‌کلید</h2>
+        <table class="shortcuts-table">
+          <tr><td><kbd>Ctrl/Cmd+Enter</kbd></td><td>اجرای برنامه</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+S</kbd></td><td>ذخیره فایل</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+O</kbd></td><td>باز کردن فایل</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+,</kbd></td><td>تنظیمات</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+Z</kbd></td><td>بازگشت</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+Shift+Z</kbd></td><td>از نو</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+F</kbd></td><td>جستجو</td></tr>
+          <tr><td><kbd>Tab</kbd></td><td>تورفتگی</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+Shift+[</kbd></td><td>تا کردن کد</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+Shift+]</kbd></td><td>باز کردن کد</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+Space</kbd></td><td>تکمیل خودکار</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+Alt+↑/↓</kbd></td><td>افزودن مکان‌نمای بالا/پایین</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+D</kbd></td><td>انتخاب تکرار بعدی</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+Click</kbd></td><td>افزودن مکان‌نما</td></tr>
+          <tr><td><kbd>F8</kbd></td><td>خطای بعدی</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+Shift+M</kbd></td><td>پنل خطاها</td></tr>
+        </table>
+        <div class="modal-actions">
+          <button id="shortcuts-close" class="btn">بستن</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!--
+    ------------------------------------------------------------------
+    CodeMirror 6 bundle. `bundle.js` is produced by `npm run build`
+    (build.js / esbuild) from renderer.js + kolang-language.js + CM6.
+    It mounts the editor into #editor, wires the toolbar buttons to
+    window.kolangIDE, and renders program output.
+    ------------------------------------------------------------------
+  -->
+  <script src="./bundle.js"></script>
+</body>
+</html>

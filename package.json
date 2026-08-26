@@ -1,0 +1,114 @@
+{
+  "name": "kolang-ide",
+  "version": "0.1.0",
+  "description": "Kolang IDE — a simple desktop editor for the Kolang Persian programming language",
+  "main": "main.js",
+  "license": "MIT",
+  "author": "FaraliDev and contributors",
+  "homepage": "https://github.com/faralidev/kolang-ide",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/faralidev/kolang-ide.git"
+  },
+  "bugs": {
+    "url": "https://github.com/faralidev/kolang-ide/issues"
+  },
+  "keywords": [
+    "kolang",
+    "ide",
+    "editor",
+    "persian-language",
+    "rtl",
+    "electron",
+    "codemirror",
+    "farsi",
+    "programming-language"
+  ],
+  "scripts": {
+    "build": "node build.js",
+    "start": "npm run build && electron .",
+    "dev": "node build.js && electron . --dev",
+    "dist": "electron-builder --mac --win",
+    "dist:mac": "electron-builder --mac --universal",
+    "dist:win": "electron-builder --win --x64",
+    "dist:dir": "electron-builder --dir"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.24.0"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.18.0",
+    "@codemirror/commands": "^6.8.0",
+    "@codemirror/language": "^6.11.0",
+    "@codemirror/lint": "^6.9.7",
+    "@codemirror/search": "^6.5.0",
+    "@codemirror/state": "^6.5.0",
+    "@codemirror/view": "^6.36.0",
+    "@lezer/highlight": "^1.2.0",
+    "codemirror": "^6.0.1"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true,
+    "esbuild@0.24.2": true,
+    "electron-winstaller@5.4.0": true
+  },
+  "build": {
+    "appId": "ir.kolang.ide",
+    "productName": "kolang-ide",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "bundle.js",
+      "bundle.js.map",
+      "kolang-language.js",
+      "renderer.js",
+      "build.js",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "native/${os}",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "arch": [
+        "universal"
+      ],
+      "icon": "build/icon.icns",
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist"
+    },
+    "win": {
+      "target": "nsis",
+      "arch": [
+        "x64"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": false
+    }
+  }
+}

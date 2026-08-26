@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build artifacts
+bundle.js
+bundle.js.map
+dist/
+out/
+
+# Bundled native binaries (built elsewhere, dropped in before packaging)
+native/darwin/kolang
+native/darwin/kolang-linter
+native/win32/kolang.exe
+native/win32/kolang-linter.exe
+
+# App icon source/generated (user-supplied art)
+build/icon.png
+build/icon.icns
+build/icon.ico
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Local env
+.env
+.env.local
