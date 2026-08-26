@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Bump @kolang/grammar when kolang-grammar publishes to npm
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    allow:
+      - dependency-name: "@kolang/grammar"
+      - dependency-name: "@tauri-apps/api"
+      - dependency-name: "@tauri-apps/cli"
+    commit-message:
+      prefix: "deps:"
+    open-pull-requests-limit: 5
