@@ -13,10 +13,10 @@ native/darwin/kolang-linter
 native/win32/kolang.exe
 native/win32/kolang-linter.exe
 
-# App icon source/generated (user-supplied art)
-build/icon.png
-build/icon.icns
-build/icon.ico
+# App icon working files (the canonical icon.png/.icns/.ico + logo.svg ARE
+# committed; these are intermediate render artifacts):
+build/icon-*.png
+build/icon.iconset/
 
 # OS junk
 .DS_Store
