@@ -74,15 +74,6 @@
       "build.js",
       "package.json"
     ],
-    "extraResources": [
-      {
-        "from": "native/${os}",
-        "to": "bin",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
     "mac": {
       "target": [
         "dmg",
@@ -93,11 +84,25 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
-      "entitlementsInherit": "build/entitlements.mac.inherit.plist"
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist",
+      "extraResources": [
+        {
+          "from": "native/darwin",
+          "to": "bin",
+          "filter": ["**/*"]
+        }
+      ]
     },
     "win": {
       "target": "nsis",
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "extraResources": [
+        {
+          "from": "native/win32",
+          "to": "bin",
+          "filter": ["**/*"]
+        }
+      ]
     },
     "nsis": {
       "oneClick": true,

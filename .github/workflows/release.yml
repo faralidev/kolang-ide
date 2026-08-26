@@ -44,6 +44,9 @@ jobs:
       - name: Download kolang + kolang-linter (darwin arm64 + amd64)
         run: |
           set -e
+          # Place into native/darwin/ — package.json's extraResources uses
+          # platform-specific blocks (not the ${os} token) so the source dir
+          # follows Node's process.platform convention: darwin / win32.
           mkdir -p native/darwin /tmp/bin
           # Interpreter
           gh release download "${KOLANG_VERSION}" \
@@ -68,8 +71,18 @@ jobs:
       - run: npm ci
       - run: npm run build
       - name: Build macOS universal (arm64+x64) dmg+zip
-        run: npx electron-builder --mac --universal --publish always
+        # When no signing cert is provided (MAC_CSC_LINK empty), skip signing
+        # entirely: hardenedRuntime in package.json forces a signing path that
+        # fails with "not a file" on an empty CSC_LINK. -c.mac.identity=null
+        # tells electron-builder there is no signing identity.
+        run: |
+          ARGS="--mac --universal --publish always"
+          if [ -z "${MAC_CSC_LINK}" ]; then
+            ARGS="$ARGS -c.mac.identity=null -c.mac.hardenedRuntime=false"
+          fi
+          npx electron-builder $ARGS
         env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           # Signing — only active if secrets are set; builds unsigned otherwise
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
