@@ -1,6 +1,6 @@
 {
   "name": "kolang-ide",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Kolang IDE — a simple desktop editor for the Kolang Persian programming language",
   "main": "main.js",
   "license": "MIT",
@@ -89,7 +89,9 @@
         {
           "from": "native/darwin",
           "to": "bin",
-          "filter": ["**/*"]
+          "filter": [
+            "**/*"
+          ]
         }
       ]
     },
@@ -100,7 +102,9 @@
         {
           "from": "native/win32",
           "to": "bin",
-          "filter": ["**/*"]
+          "filter": [
+            "**/*"
+          ]
         }
       ]
     },
