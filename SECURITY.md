@@ -14,8 +14,12 @@ for the latest release.
 
 **Please do not open a public GitHub issue for security vulnerabilities.**
 
-Instead, email **faralidev@example.com** (TODO: replace with a real contact
-address) with:
+Instead, report them privately via **GitHub Security Advisories**:
+
+1. Go to <https://github.com/faralidev/kolang-ide/security/advisories/new>
+2. Click **"Report a vulnerability"**
+
+Please include:
 
 - a description of the issue and its potential impact,
 - steps to reproduce (a minimal example is ideal),

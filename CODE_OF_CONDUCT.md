@@ -54,8 +54,10 @@ appointed representative at an online or offline event.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the community leaders responsible for enforcement at
-**faralidev@example.com** (TODO: replace with a real contact address).
+reported to the community leaders responsible for enforcement by contacting
+**@faralidev** privately via GitHub (DM, or open a private Security Advisory
+at <https://github.com/faralidev/kolang-ide/security/advisories/new> as a
+fallback private channel).
 All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the
