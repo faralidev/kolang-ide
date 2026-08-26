@@ -254,7 +254,7 @@ ipcMain.handle('linter:run', async (event, { code }) => {
 // ---------------------------------------------------------------------------
 ipcMain.handle('file:open', async () => {
   const result = await dialog.showOpenDialog(getFocusedWindow(), {
-    title: 'باز کردن فایل کولنگ',
+    title: 'باز کردن فایل کلنگ',
     properties: ['openFile'],
     filters: [{ name: 'Kolang', extensions: ['kolang'] }],
   });
@@ -272,7 +272,7 @@ ipcMain.handle('file:open', async () => {
 
 ipcMain.handle('file:save', async (event, { content }) => {
   const result = await dialog.showSaveDialog(getFocusedWindow(), {
-    title: 'ذخیره فایل کولنگ',
+    title: 'ذخیره فایل کلنگ',
     defaultPath: 'untitled.kolang',
     filters: [{ name: 'Kolang', extensions: ['kolang'] }],
   });
