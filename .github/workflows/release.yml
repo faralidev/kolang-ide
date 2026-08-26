@@ -1,16 +1,23 @@
 name: Release
 
-# Builds macOS (universal arm64+x64) and Windows (x64) installers and publishes
-# them as a GitHub Release. Both jobs fetch the pre-built `kolang` interpreter
-# and `kolang-linter` binaries from their respective upstream repos and bundle
-# them into the app's Resources/bin/ (via electron-builder extraResources from
-# native/${os}/), so end users get a working app with no extra setup.
+# Builds macOS (universal arm64+x64) and Windows (x64) installers in parallel,
+# then publishes them as a SINGLE GitHub Release in a dedicated publish job.
+# Both build jobs fetch the pre-built `kolang` interpreter and `kolang-linter`
+# binaries from their respective upstream repos and bundle them into the app's
+# Resources/bin/ (via electron-builder extraResources from native/${os}/), so
+# end users get a working app with no extra setup.
 #
 # Trigger: push a tag `v*.*.*`, or run manually from the Actions tab.
 #
 # The macOS job downloads BOTH darwin-arm64 and darwin-amd64 builds of each
 # binary and stitches them into a single universal binary with `lipo -create`
 # (matching what native/README.md documents).
+#
+# Why a separate publish job: if both build jobs run `--publish always`, they
+# race and each creates its OWN draft release for the tag, leaving two partial
+# drafts to manually consolidate. Instead both build with `--publish never`,
+# upload their dist/ as workflow artifacts, and a single publish job (needing
+# both) creates one release and attaches all assets.
 #
 # Code signing is optional: if the signing secrets are not set, builds are
 # unsigned (macOS users right-click → Open the first time; Windows SmartScreen
@@ -70,27 +77,38 @@ jobs:
 
       - run: npm ci
       - run: npm run build
-      - name: Build macOS universal (arm64+x64) dmg+zip
+      - name: Build macOS universal (arm64+x64) dmg+zip (no publish)
         # When no signing cert is provided (MAC_CSC_LINK empty), skip signing
         # entirely: hardenedRuntime in package.json forces a signing path that
         # fails with "not a file" on an empty CSC_LINK. -c.mac.identity=null
         # tells electron-builder there is no signing identity.
         run: |
-          ARGS="--mac --universal --publish always"
+          ARGS="--mac --universal --publish never"
           if [ -z "${MAC_CSC_LINK}" ]; then
             ARGS="$ARGS -c.mac.identity=null -c.mac.hardenedRuntime=false"
           fi
           npx electron-builder $ARGS
         env:
           MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
-          # Signing — only active if secrets are set; builds unsigned otherwise
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload macOS dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-mac
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.dmg.blockmap
+            dist/*.zip.blockmap
+            dist/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 1
 
   build-windows:
     runs-on: windows-latest
@@ -123,9 +141,79 @@ jobs:
 
       - run: npm ci
       - run: npm run build
-      - name: Build Windows NSIS x64
-        run: npx electron-builder --win --x64 --publish always
+      - name: Build Windows NSIS x64 (no publish)
+        run: npx electron-builder --win --x64 --publish never
         env:
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+      - name: Upload Windows dist artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-win
+          path: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: [build-mac, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: rel
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          # workflow_dispatch doesn't set GITHUB_REF_NAME to the tag; fall back
+          # to the triggering ref.
+          if [ -z "$TAG" ] || [ "$TAG" = "main" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag=$TAG version=$VERSION"
+
+      - name: Download all dist artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts to publish
+        run: |
+          echo "=== artifacts ==="
+          find dist -type f -printf '%s  %p\n' | sort -k2
+
+      - name: Create GitHub Release with all assets
+        env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="${{ steps.rel.outputs.tag }}"
+          VERSION="${{ steps.rel.outputs.version }}"
+          # Create the release (non-draft, non-prerelease) if it doesn't exist,
+          # then upload every artifact. gh release create uploads all matching
+          # files in one shot and is idempotent per asset name.
+          NOTES="## Kolang IDE v${VERSION}
+
+          Pre-built installers for macOS (universal: Apple Silicon + Intel) and Windows (x64).
+          The \`kolang\` interpreter and \`kolang-linter\` are bundled inside the app.
+
+          ### Install
+
+          - **macOS:** download \`kolang-ide-${VERSION}-universal.dmg\`, drag to Applications. First launch: right-click → Open (unsigned build).
+          - **Windows:** download \`kolang-ide-Setup-${VERSION}.exe\` and run.
+          - **macOS via Homebrew:** \`brew install --cask faralidev/tap/kolang-ide\`
+
+          See the [README](https://github.com/faralidev/kolang-ide#readme) for details."
+          gh release create "$TAG" \
+            --repo faralidev/kolang-ide \
+            --title "Kolang IDE v${VERSION}" \
+            --notes "$NOTES" \
+            --verify-tag \
+            dist/*
