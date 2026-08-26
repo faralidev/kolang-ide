@@ -1,0 +1,29 @@
+# Normalize line endings; let git autocrlf handle platform differences
+* text=auto eol=lf
+
+# Windows-native sources stay CRLF
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+
+# Binaries — never diff/merge
+*.png       binary
+*.icns      binary
+*.ico       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.dmg       binary
+*.zip       binary
+*.exe       binary
+*.dll       binary
+*.so        binary
+*.dylib     binary
+native/**   binary
+
+# Generated artifacts — excluded from GitHub language stats and diffs
+bundle.js       linguist-generated=true linguist-vendored=true
+bundle.js.map   linguist-generated=true linguist-vendored=true
+package-lock.json linguist-generated=true
+
+# Markdown diffs render better with -p
+*.md    diff=markdown
