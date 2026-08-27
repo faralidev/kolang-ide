@@ -188,16 +188,13 @@ fn resolve_default_kolang_bin(app: &AppHandle) -> String {
         return p.to_string_lossy().to_string();
     }
     // در حالت بسته‌بندی‌شده، باینری در resources/bin/ قرار دارد.
-    // در حالت توسعه، bin/kolang نسبت به ریشهٔ پروژه.
     let name = if cfg!(windows) { "kolang.exe" } else { "kolang" };
     if let Some(p) = resource_bin(app, name) {
         return p.to_string_lossy().to_string();
     }
-    let dev_bin = std::env::current_dir()
-        .ok()
-        .map(|d| d.join("bin").join("kolang"))
-        .filter(|p| p.exists());
-    if let Some(p) = dev_bin {
+    // در حالت توسعه، bin/kolang نسبت به ریشهٔ پروژه.
+    // current_dir ممکن است src-tauri/ باشد، پس تا ریشه بالا می‌رویم.
+    if let Some(p) = find_dev_bin("kolang") {
         return p.to_string_lossy().to_string();
     }
     "kolang".to_string()
@@ -218,14 +215,26 @@ fn resolve_default_linter_bin(app: &AppHandle) -> String {
     if let Some(p) = resource_bin(app, name) {
         return p.to_string_lossy().to_string();
     }
-    let dev_bin = std::env::current_dir()
-        .ok()
-        .map(|d| d.join("bin").join("kolang-linter"))
-        .filter(|p| p.exists());
-    if let Some(p) = dev_bin {
+    if let Some(p) = find_dev_bin("kolang-linter") {
         return p.to_string_lossy().to_string();
     }
     "kolang-linter".to_string()
+}
+
+/// در حالت توسعه، باینری‌ها در bin/ نسبت به ریشهٔ پروژه قرار دارند.
+/// current_dir ممکن است src-tauri/ یا ریشه باشد؛ تا ۳ سطح بالا می‌رویم.
+fn find_dev_bin(name: &str) -> Option<PathBuf> {
+    let mut dir = std::env::current_dir().ok()?;
+    for _ in 0..4 {
+        let candidate = dir.join("bin").join(name);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    None
 }
 
 fn resource_bin(app: &AppHandle, name: &str) -> Option<PathBuf> {
