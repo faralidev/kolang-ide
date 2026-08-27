@@ -52,10 +52,44 @@ struct Diagnostic {
 /// تنظیمات ذخیره‌شدهٔ کاربر.
 #[derive(Serialize, Deserialize, Clone)]
 struct Settings {
-    #[serde(rename = "kolangPath")]
+    #[serde(alias = "kolangPath")]
     kolang_path: String,
-    #[serde(rename = "linterPath")]
+    #[serde(alias = "linterPath")]
     linter_path: String,
+    #[serde(default = "default_font_size")]
+    font_size: u32,
+    #[serde(default = "default_tab_size")]
+    tab_size: u32,
+    #[serde(default = "default_theme")]
+    theme: String,
+    #[serde(default = "default_true")]
+    word_wrap: bool,
+    #[serde(default = "default_true")]
+    line_numbers: bool,
+    #[serde(default = "default_false")]
+    auto_save: bool,
+    #[serde(default = "default_false")]
+    auto_format: bool,
+}
+
+fn default_font_size() -> u32 {
+    14
+}
+
+fn default_tab_size() -> u32 {
+    4
+}
+
+fn default_theme() -> String {
+    "dark".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_false() -> bool {
+    false
 }
 
 
@@ -176,6 +210,13 @@ fn default_settings(app: &AppHandle) -> Settings {
     Settings {
         kolang_path: resolve_default_kolang_bin(app),
         linter_path: resolve_default_linter_bin(app),
+        font_size: default_font_size(),
+        tab_size: default_tab_size(),
+        theme: default_theme(),
+        word_wrap: default_true(),
+        line_numbers: default_true(),
+        auto_save: default_false(),
+        auto_format: default_false(),
     }
 }
 
@@ -826,6 +867,25 @@ fn settings_set(app: AppHandle, state: State<AppState>, settings: Settings) -> b
         } else {
             settings.linter_path.trim().to_string()
         },
+        font_size: if settings.font_size == 0 {
+            default_font_size()
+        } else {
+            settings.font_size
+        },
+        tab_size: if settings.tab_size == 0 {
+            default_tab_size()
+        } else {
+            settings.tab_size
+        },
+        theme: if settings.theme.trim().is_empty() {
+            default_theme()
+        } else {
+            settings.theme.trim().to_string()
+        },
+        word_wrap: settings.word_wrap,
+        line_numbers: settings.line_numbers,
+        auto_save: settings.auto_save,
+        auto_format: settings.auto_format,
     };
     save_settings(&app, &next);
     let mut current = state.settings.lock().unwrap();

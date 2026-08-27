@@ -21,10 +21,12 @@ import { html } from '@codemirror/lang-html'
 import { css } from '@codemirror/lang-css'
 import { kolangCompletion, kolangHover, kolangTheme } from './kolang-extras.mjs'
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   const editorEl = document.getElementById('editor')
   const tabBarEl = document.getElementById('tab-bar')
   const langSelect = document.getElementById('language-select')
+  const sidebarEl = document.getElementById('sidebar')
+  const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn')
   const runBtn = document.getElementById('run-btn')
   const stopBtn = document.getElementById('stop-btn')
   const openBtn = document.getElementById('open-btn')
@@ -37,6 +39,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const browseBtn = document.getElementById('browse-btn')
   const linterPathInput = document.getElementById('linter-path-input')
   const browseLinterBtn = document.getElementById('browse-linter-btn')
+  const fontSizeInput = document.getElementById('font-size-input')
+  const tabSizeInput = document.getElementById('tab-size-input')
+  const themeSelect = document.getElementById('theme-select')
+  const wordWrapCheckbox = document.getElementById('word-wrap-checkbox')
+  const lineNumbersCheckbox = document.getElementById('line-numbers-checkbox')
+  const autoSaveCheckbox = document.getElementById('auto-save-checkbox')
+  const autoFormatCheckbox = document.getElementById('auto-format-checkbox')
   const settingsSaveBtn = document.getElementById('settings-save')
   const settingsCancelBtn = document.getElementById('settings-cancel')
   const explorerEl = document.getElementById('explorer')
@@ -54,6 +63,23 @@ document.addEventListener('DOMContentLoaded', () => {
   // content, selection and language survive tab switches.
   let openFiles = []
   let activeTab = -1
+
+  // Editor settings (VS Code-style), mirrored from the backend settings.json.
+  // font_size / tab_size / theme / word_wrap / line_numbers are applied to the
+  // editor; auto_save saves the active file on change; auto_format is stored
+  // for future use.
+  let editorSettings = {
+    kolang_path: '',
+    linter_path: '',
+    font_size: 14,
+    tab_size: 4,
+    theme: 'dark',
+    word_wrap: true,
+    line_numbers: true,
+    auto_save: false,
+    auto_format: false,
+  }
+  let autoSaveTimer = null
 
   // Default welcome program — valid Kolang, verb-final, Persian digits.
   const DEFAULT_DOC = `/ به ویرایشگر کلنگ خوش آمدید
@@ -196,28 +222,35 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function buildState(doc, language, selection) {
     const lang = Object.prototype.hasOwnProperty.call(LANG_EXTENSIONS, language) ? language : 'kolang'
+    const extensions = [
+      ...(editorSettings.line_numbers !== false
+        ? [lineNumbers({ formatNumber: (n) => toPersianDigits(String(n)) })]
+        : []),
+      foldGutter(),
+      codeFolding(),
+      lintGutter(),
+      history(),
+      bracketMatching(),
+      closeBrackets(),
+      ...(lang === 'kolang' ? [EditorView.inputHandler.of(guillemetHandler)] : []),
+      ...LANG_EXTENSIONS[lang](),
+      ...(lang !== 'kolang' ? [autocompletion()] : []),
+      highlightActiveLine(),
+      highlightActiveLineGutter(),
+      highlightSelectionMatches(),
+      indentOnInput(),
+      keymap.of(editorKeymap()),
+      ...(editorSettings.word_wrap !== false ? [EditorView.lineWrapping] : []),
+      EditorState.tabSize.of(editorSettings.tab_size > 0 ? editorSettings.tab_size : 4),
+      ...(editorSettings.auto_save
+        ? [EditorView.updateListener.of((update) => { if (update.docChanged) scheduleAutoSave() })]
+        : []),
+      ...kolangTheme(),
+    ]
     return EditorState.create({
       doc,
       ...(selection ? { selection } : {}),
-      extensions: [
-        lineNumbers({ formatNumber: (n) => toPersianDigits(String(n)) }),
-        foldGutter(),
-        codeFolding(),
-        lintGutter(),
-        history(),
-        bracketMatching(),
-        closeBrackets(),
-        ...(lang === 'kolang' ? [EditorView.inputHandler.of(guillemetHandler)] : []),
-        ...LANG_EXTENSIONS[lang](),
-        ...(lang !== 'kolang' ? [autocompletion()] : []),
-        highlightActiveLine(),
-        highlightActiveLineGutter(),
-        highlightSelectionMatches(),
-        indentOnInput(),
-        keymap.of(editorKeymap()),
-        EditorView.lineWrapping,
-        ...kolangTheme(),
-      ],
+      extensions,
     })
   }
 
@@ -252,6 +285,58 @@ document.addEventListener('DOMContentLoaded', () => {
       indentWithTab,
     ]
   }
+
+  // Auto-save: debounced save of the active file when it changes and it has a
+  // path. Only active when the auto_save setting is enabled.
+  function scheduleAutoSave() {
+    if (!editorSettings.auto_save) return
+    const tab = activeFile()
+    if (!tab || !tab.path || dialogBusy || isRunning) return
+    clearTimeout(autoSaveTimer)
+    autoSaveTimer = setTimeout(() => {
+      const t = activeFile()
+      if (!t || !t.path || dialogBusy || isRunning) return
+      invoke("fs_write_file", { filePath: t.path, content: view.state.doc.toString() }).catch(() => {})
+    }, 800)
+  }
+
+  // Chrome-only settings (font size CSS var + theme class) — no editor rebuild.
+  function applyChromeSettings() {
+    document.documentElement.style.setProperty('--editor-font-size', String(editorSettings.font_size || 14) + 'px')
+    document.body.classList.toggle('light', editorSettings.theme === 'light')
+  }
+
+  // Apply a full settings object: chrome settings plus the editor-affecting
+  // ones (tabSize / lineNumbers / wordWrap) by rebuilding every open tab's
+  // EditorState (content and selection are preserved).
+  function applySettings(settings) {
+    editorSettings = { ...editorSettings, ...settings }
+    applyChromeSettings()
+    saveActiveState()
+    for (const tab of openFiles) {
+      if (tab.state) {
+        const sel = tab.state.selection
+        const docText = tab.state.doc.toString()
+        tab.state = buildState(docText, tab.language, sel)
+      }
+    }
+    const tab = activeFile()
+    if (tab && tab.state) {
+      view.setState(tab.state)
+      view.scrollDOM.scrollTop = tab.scrollTop || 0
+    }
+    updateChrome()
+  }
+
+  // Load persisted settings before creating the editor so tab size, line
+  // numbers, word wrap etc. apply immediately. (Defaults if unavailable.)
+  try {
+    const saved = await invoke("settings_get")
+    editorSettings = { ...editorSettings, ...saved }
+  } catch (err) {
+    // Defaults apply when the backend is unavailable.
+  }
+  applyChromeSettings()
 
   const view = new EditorView({
     parent: editorEl,
@@ -634,8 +719,15 @@ document.addEventListener('DOMContentLoaded', () => {
   async function showSettingsModal() {
     try {
       const settings = await invoke("settings_get")
-      kolangPathInput.value = settings.kolangPath || ''
-      linterPathInput.value = settings.linterPath || ''
+      kolangPathInput.value = settings.kolang_path || ''
+      linterPathInput.value = settings.linter_path || ''
+      fontSizeInput.value = settings.font_size || 14
+      tabSizeInput.value = settings.tab_size || 4
+      themeSelect.value = settings.theme === 'light' ? 'light' : 'dark'
+      wordWrapCheckbox.checked = settings.word_wrap !== false
+      lineNumbersCheckbox.checked = settings.line_numbers !== false
+      autoSaveCheckbox.checked = settings.auto_save === true
+      autoFormatCheckbox.checked = settings.auto_format === true
     } catch (err) {
       appendOutput('خطا در خواندن تنظیمات: ' + err.message + '\n', 'err')
     }
@@ -670,10 +762,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   settingsSaveBtn.addEventListener('click', async () => {
     try {
-      await invoke("settings_set", { settings: {
-        kolangPath: kolangPathInput.value.trim(),
-        linterPath: linterPathInput.value.trim(),
-      } })
+      const settings = {
+        kolang_path: kolangPathInput.value.trim(),
+        linter_path: linterPathInput.value.trim(),
+        font_size: Math.max(8, Math.min(32, parseInt(fontSizeInput.value, 10) || 14)),
+        tab_size: Math.max(1, Math.min(16, parseInt(tabSizeInput.value, 10) || 4)),
+        theme: themeSelect.value,
+        word_wrap: wordWrapCheckbox.checked,
+        line_numbers: lineNumbersCheckbox.checked,
+        auto_save: autoSaveCheckbox.checked,
+        auto_format: autoFormatCheckbox.checked,
+      }
+      await invoke("settings_set", { settings })
+      applySettings(settings)
       hideSettingsModal()
       appendOutput('تنظیمات ذخیره شد\n', 'muted')
     } catch (err) {
@@ -725,6 +826,12 @@ document.addEventListener('DOMContentLoaded', () => {
   openBtn.addEventListener('click', openFile)
   saveBtn.addEventListener('click', saveFile)
 
+  // Sidebar toggle — persisted across sessions via localStorage.
+  sidebarToggleBtn.addEventListener('click', () => {
+    sidebarEl.classList.toggle('hidden')
+    localStorage.setItem('kolang-sidebar-hidden', sidebarEl.classList.contains('hidden') ? '1' : '0')
+  })
+
   // Manual language switch for the active tab — rebuilds its state with the
   // chosen language extensions (selection is preserved).
   langSelect.addEventListener('change', () => {
@@ -774,6 +881,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Initial state: one untitled Kolang tab.
   openFiles = [makeUntitledTab()]
   activeTab = 0
+
+  // Restore the sidebar visibility saved from a previous session.
+  if (localStorage.getItem('kolang-sidebar-hidden') === '1') {
+    sidebarEl.classList.add('hidden')
+  }
+
   renderTabBar()
   updateChrome()
 })
