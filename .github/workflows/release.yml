@@ -55,3 +55,144 @@ jobs:
           releaseBody: 'ویرایشگر دسکتاپ کلنگ'
           releaseDraft: false
           args: ${{ matrix.args }}
+
+  bump-taps:
+    name: Bump Homebrew cask + Scoop manifest
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compute SHA256 for release assets
+        id: hashes
+        run: |
+          set -euo pipefail
+          VERSION="${{ github.ref_name }}"
+          HB_VERSION="${VERSION#v}"
+          mkdir -p /tmp/assets
+          # kolang-ide publishes:
+          #   kolang-ide-{version}-universal.dmg        (macOS — Homebrew cask)
+          #   kolang-ide.Setup.{version}.exe            (Windows — Scoop manifest)
+          for asset in \
+            "kolang-ide-${HB_VERSION}-universal.dmg" \
+            "kolang-ide.Setup.${HB_VERSION}.exe"; do
+            for attempt in 1 2 3 4 5; do
+              if curl -fsSL -o "/tmp/assets/$asset" "https://github.com/faralidev/kolang-ide/releases/download/${VERSION}/$asset"; then
+                break
+              fi
+              echo "attempt $attempt failed, waiting 15s..." >&2
+              sleep 15
+            done
+            test -s "/tmp/assets/$asset"
+            HASHES[$asset]=$(sha256sum "/tmp/assets/$asset" | awk '{print $1}')
+          done
+          {
+            echo "version=${VERSION}"
+            echo "hb_version=${HB_VERSION}"
+            echo "dmg_hash=${HASHES[kolang-ide-${HB_VERSION}-universal.dmg]}"
+            echo "exe_hash=${HASHES[kolang-ide.Setup.${HB_VERSION}.exe]}"
+          } >> "$GITHUB_OUTPUT"
+
+      # ── Homebrew cask (macOS dmg) ──────────────────────────────────────
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: faralidev/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update Casks/kolang-ide.rb
+        env:
+          VERSION: ${{ github.ref_name }}
+          HB_VERSION: ${{ steps.hashes.outputs.hb_version }}
+          DMG_HASH: ${{ steps.hashes.outputs.dmg_hash }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          version = os.environ["VERSION"]
+          hb_version = os.environ["HB_VERSION"]
+          dmg_hash = os.environ["DMG_HASH"]
+          path = "homebrew-tap/Casks/kolang-ide.rb"
+
+          with open(path, encoding="utf-8") as f:
+              content = f.read()
+
+          # Bump version (no leading "v")
+          content = re.sub(
+              r'^(\s*version\s+")[^"]*(")',
+              lambda m: m.group(1) + hb_version + m.group(2),
+              content, flags=re.M,
+          )
+          # Bump sha256
+          content = re.sub(
+              r'^(\s*sha256\s+")[^"]*(")',
+              lambda m: m.group(1) + dmg_hash + m.group(2),
+              content, flags=re.M,
+          )
+          # The url uses #{version} interpolation, so no URL change needed —
+          # it auto-resolves to the new version. Just ensure the tag is right.
+          # (The url pattern is: .../download/v#{version}/kolang-ide-#{version}-universal.dmg)
+
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          print(f"Updated {path}: version={hb_version}")
+          PY
+
+      - name: Create Homebrew PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          path: homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          branch: kolang-ide-${{ github.ref_name }}
+          title: "kolang-ide ${{ github.ref_name }}"
+          commit-message: "kolang-ide ${{ github.ref_name }}: bump version + sha256"
+          body: |
+            Bump kolang-ide to ${{ github.ref_name }} and update the dmg SHA256.
+
+            Automated by the kolang-ide release workflow.
+
+      # ── Scoop manifest (Windows exe) ───────────────────────────────────
+      - name: Checkout scoop-bucket
+        uses: actions/checkout@v4
+        with:
+          repository: faralidev/scoop-bucket
+          token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          path: scoop-bucket
+
+      - name: Update bucket/kolang-ide.json
+        env:
+          VERSION: ${{ github.ref_name }}
+          HB_VERSION: ${{ steps.hashes.outputs.hb_version }}
+          EXE_HASH: ${{ steps.hashes.outputs.exe_hash }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          version = os.environ["VERSION"]
+          hb_version = os.environ["HB_VERSION"]
+          exe_hash = os.environ["EXE_HASH"]
+          path = "scoop-bucket/bucket/kolang-ide.json"
+
+          with open(path, encoding="utf-8") as f:
+              data = json.load(f)
+
+          data["version"] = hb_version
+          arch = data["architecture"]["64bit"]
+          arch["hash"] = exe_hash
+          arch["url"] = re.sub(r"/download/v[^/]+/", f"/download/{version}/", arch["url"])
+
+          with open(path, "w", encoding="utf-8") as f:
+              json.dump(data, f, indent=4, ensure_ascii=False)
+              f.write("\n")
+          print(f"Updated {path}: version={hb_version}")
+          PY
+
+      - name: Create Scoop PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          path: scoop-bucket
+          token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          branch: kolang-ide-${{ github.ref_name }}
+          title: "kolang-ide ${{ github.ref_name }}"
+          commit-message: "kolang-ide ${{ github.ref_name }}: bump version + hash"
+          body: |
+            Bump kolang-ide to ${{ github.ref_name }} and update the Scoop manifest hash.
+
+            Automated by the kolang-ide release workflow.
