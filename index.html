@@ -34,7 +34,11 @@
       height: 100vh;
     }
 
-    /* ---- Sidebar (explorer) — first flex child → right side in RTL ---- */
+    /* ---- Sidebar (explorer) — first flex child → right side in RTL ----
+       Collapses to a thin strip (same pattern as the output panel: a thin
+       header bar stays visible to re-expand). State persists in
+       localStorage 'kolang-sidebar-collapsed' (migrated from the old
+       'kolang-sidebar-hidden'). */
     #sidebar {
       width: 240px;
       flex: 0 0 240px;
@@ -43,22 +47,72 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      transition: width 0.15s ease, flex-basis 0.15s ease;
     }
 
-    .sidebar.hidden { display: none; }
+    /* Collapsed: thin strip showing only the chevron — click to re-expand.
+       Uses a slightly darker background (#11111b = Mocha Crust) so it reads
+       as an intentional rail, not a broken panel. */
+    #sidebar.collapsed {
+      width: 36px;
+      flex: 0 0 36px;
+      background: #11111b;
+      border-left-color: #11111b;
+    }
+    #sidebar.collapsed #explorer { display: none; }
+    #sidebar.collapsed .sidebar-title { display: none; }
+    #sidebar.collapsed .sidebar-actions { display: none; }
+    #sidebar.collapsed .sidebar-header {
+      justify-content: center;
+      padding: 8px 4px;
+      border-bottom: none;
+      cursor: pointer;
+      height: 100%;
+    }
+    #sidebar.collapsed .sidebar-header:hover { background: #181825; }
+    #sidebar.collapsed .sidebar-chevron {
+      font-size: 18px;
+      padding: 8px 10px;
+      color: #cba6f7;
+    }
+    #sidebar.collapsed .sidebar-chevron:hover {
+      color: #cdd6f4;
+      background: #313244;
+    }
 
     .sidebar-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 4px;
       padding: 8px 12px;
       border-bottom: 1px solid #313244;
+      user-select: none;
+    }
+
+    .sidebar-chevron {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: inherit;
+      line-height: 1;
+    }
+    .sidebar-chevron:hover { color: var(--text); background: #31324466; }
+
+    .sidebar-actions {
+      display: flex;
+      gap: 4px;
     }
 
     .sidebar-title {
       color: #cdd6f4;
       font-weight: bold;
       font-size: 13px;
+      flex: 1;
     }
 
     .btn-small {
@@ -79,17 +133,18 @@
     .tree-item {
       padding: 3px 12px 3px 8px;
       cursor: pointer;
-      color: #cdd6f4;
+      color: #bac2de;
+      font-weight: 500;
       white-space: nowrap;
       display: flex;
       align-items: center;
       gap: 4px;
     }
-    .tree-item:hover { background: #313244; }
-    .tree-item.active { background: #313244; color: #cba6f7; }
-    .tree-item.dir { color: #f9e2af; font-weight: 500; }
+    .tree-item:hover { background: #313244; color: #cdd6f4; }
+    .tree-item.active { background: #313244; color: #cba6f7; font-weight: 600; }
+    .tree-item.dir { color: #f9e2af; font-weight: 600; }
     .tree-children { padding-right: 16px; }
-    .tree-icon { font-size: 14px; opacity: 0.8; }
+    .tree-icon { font-size: 14px; opacity: 1; }
 
     /* ---- Main column (toolbar + editor + output) ---- */
     #main {
@@ -155,20 +210,18 @@
       text-overflow: ellipsis;
     }
 
-    /* ---- Language selector ---- */
-    #language-select {
-      background: var(--bg);
-      color: var(--text);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 6px 8px;
-      font-size: 13px;
-      font-family: inherit;
-      cursor: pointer;
-      outline: none;
+    /* LTR/RTL direction toggle — small emoji icon reflecting the active
+       tab's effective text direction. ↩️ = RTL, ↪️ = LTR. No `color` is set
+       so the emoji renders at its natural (colorful) brightness; a `color`
+       property would tint/darken the emoji glyph. */
+    #direction-toggle {
+      padding: 4px 8px;
+      font-size: 16px;
+      line-height: 1;
+      text-align: center;
     }
-    #language-select:hover { border-color: var(--muted); }
-    #language-select:focus { border-color: var(--accent); }
+    #direction-toggle:hover { background: #313244; }
+    #direction-toggle:active { background: #313244; }
 
     /* ---- Tab bar ---- */
     #tab-bar {
@@ -225,7 +278,6 @@
     #editor {
       flex: 1;
       min-height: 0; /* CRITICAL for flex children to scroll */
-      border-bottom: 1px solid var(--border);
       background: var(--bg);
       overflow: hidden;
     }
@@ -233,30 +285,152 @@
     /* Editor font size is driven by the settings (JS sets the CSS variable). */
     .cm-content { font-size: var(--editor-font-size, 14px); }
 
-    /* ---- Light theme (VS Code-style setting: theme = "light") ---- */
+    /* RTL editor: put the vertical scrollbar on the LEFT. The editor theme
+       (kolang-extras.mjs) sets `& { direction: ltr }` so .cm-scroller inherits
+       ltr and WebKit/Blink paints the scrollbar on the right, over the Persian
+       text. Flipping .cm-scroller to rtl moves the scrollbar to the left.
+       .cm-content / .cm-line already carry `direction: rtl` in the theme, so
+       the text direction is unaffected. The reversed flex main-axis would
+       shove .cm-gutters (order: 2 in the theme) to the left, so we pin them
+       back to the right edge with a lower order — scoped under #editor so the
+       id-selector specificity beats the theme's class rule. */
+    .cm-scroller { direction: rtl; }
+    #editor .cm-gutters { order: -1; }
+
+    /* ---- Light theme (Catppuccin Latte) — applied via body.light ----
+       The editor surface is themed by kolang-extras.mjs (kolangEditorThemeLight);
+       these rules cover the chrome (sidebar, tabs, output, resizer). Colors
+       follow the Latte palette: Base #eff1f5, Mantle #e6e9ef, Surface0 #ccd0da,
+       Surface1 #bcc0cc, Text #4c4f69, Mauve #8839ef, etc. */
     body.light {
-      --bg: #f5f6fa;
-      --surface: #ffffff;
-      --text: #1f2430;
-      --accent: #7a5af8;
-      --success: #2f9e44;
-      --error: #d6336c;
-      --muted: #6b7280;
-      --border: #d0d5dd;
+      --bg: #eff1f5;
+      --surface: #e6e9ef;
+      --text: #4c4f69;
+      --accent: #8839ef;
+      --success: #40a02b;
+      --error: #d20f39;
+      --muted: #6c6f85;
+      --border: #bcc0cc;
     }
-    body.light #sidebar { background: #eef0f5; border-left-color: var(--border); }
-    body.light #tab-bar { background: #eef0f5; border-bottom-color: var(--border); }
-    body.light #output { background: #ffffff; border-top-color: var(--border); }
-    body.light .tab:hover { background: #e0e4ec; }
-    body.light .tab-close:hover { background: #d4d9e3; }
+    body.light #sidebar { background: #e6e9ef; border-left-color: var(--border); }
+    body.light #sidebar.collapsed { background: #dce0e8; border-left-color: #dce0e8; }
+    body.light #sidebar.collapsed .sidebar-chevron { color: #8839ef; }
+    body.light #tab-bar { background: #e6e9ef; border-bottom-color: var(--border); }
+    body.light #toolbar { background: var(--surface); border-bottom-color: var(--border); }
+    body.light .tab { color: #6c6f85; }
+    body.light .tab.active { background: var(--bg); color: var(--text); border-top-color: var(--accent); }
+    body.light #editor { background: var(--bg); }
+    body.light #output, body.light #output-panel { background: #e6e9ef; }
+    body.light #output-header { border-bottom-color: var(--border); }
+    body.light .output-header-title { color: var(--muted); }
+    body.light #output .out { color: var(--text); }
+    body.light #output .err { color: var(--error); }
+    body.light #output .muted { color: var(--muted); }
+    body.light #output::-webkit-scrollbar-track,
+    body.light #explorer::-webkit-scrollbar-track { background: #e6e9ef; }
+    body.light #output::-webkit-scrollbar-thumb,
+    body.light #explorer::-webkit-scrollbar-thumb { background: #bcc0cc; }
+    body.light #output-resizer { background: var(--border); }
+    body.light #output-resizer::after { background: var(--muted); }
+    body.light .tab:hover { background: #ccd0da; }
+    body.light .tab-close:hover { background: #bcc0cc; }
+    body.light .tree-item { color: #5c5f77; }
+    body.light .tree-item:hover { background: #ccd0da; color: #4c4f69; }
+    body.light .tree-item.active { background: #ccd0da; color: #8839ef; }
+    body.light .tree-item.dir { color: #df8e1d; }
+    body.light .btn { background: var(--bg); color: var(--text); border-color: var(--border); }
+    body.light .btn:hover { background: #ccd0da; border-color: var(--muted); }
+    body.light .btn-accent { color: var(--accent); }
+    body.light .modal-content { background: var(--surface); border-color: var(--border); }
+    body.light .modal-content h2 { color: var(--text); }
+    body.light .modal-content label { color: var(--muted); }
+    body.light .path-row input,
+    body.light .settings-grid input,
+    body.light .settings-grid select {
+      background: var(--bg); color: var(--text); border-color: var(--border);
+    }
+    body.light .shortcuts-table td { border-bottom-color: var(--border); }
+    body.light .shortcuts-table kbd { background: #ccd0da; border-color: var(--border); color: var(--text); }
+
+    /* ---- Draggable resize handle between editor and output ---- */
+    #output-resizer {
+      flex: 0 0 6px;
+      height: 6px;
+      min-height: 6px;
+      background: var(--border);
+      cursor: row-resize;
+      position: relative;
+      transition: background 0.15s ease;
+    }
+    #output-resizer::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 40px;
+      height: 2px;
+      border-radius: 1px;
+      background: var(--muted);
+      opacity: 0.45;
+      transition: opacity 0.15s ease;
+    }
+    #output-resizer:hover { background: var(--muted); }
+    #output-resizer:hover::after { opacity: 0.95; }
+
+    /* ---- Collapsible output panel (header + scrollable body) ---- */
+    #output-panel {
+      flex: 0 0 220px;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: #181825;
+      overflow: hidden;
+    }
+    /* Collapsed: only the thin header bar stays visible to re-expand. */
+    #output-panel.collapsed { flex: 0 0 28px; }
+    #output-panel.collapsed #output { display: none; }
+    #output-panel.collapsed #output-header { border-bottom: none; }
+
+    #output-header {
+      flex: 0 0 28px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      direction: rtl;
+      border-bottom: 1px solid var(--border);
+      user-select: none;
+      cursor: pointer;
+    }
+    #output-header:hover .output-header-title { color: var(--text); }
+
+    #output-toggle-btn {
+      background: transparent;
+      border: none;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 13px;
+      line-height: 1;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: inherit;
+      display: inline-flex;
+      align-items: center;
+    }
+    #output-toggle-btn:hover { color: var(--accent); background: #31324466; }
+
+    .output-header-title {
+      color: var(--muted);
+      font-size: 12px;
+      transition: color 0.15s ease;
+    }
 
     #output {
-      flex: 0 0 220px;
-      height: 220px;
+      flex: 1;
       min-height: 0;
       overflow-y: auto;
       background: #181825;
-      border-top: 1px solid var(--border);
       padding: 10px 12px;
       font-family: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
       font-size: 13px;
@@ -371,6 +545,12 @@
     .settings-grid .check-row input { accent-color: var(--accent); width: auto; }
 
     /* ---- Shortcuts modal ---- */
+    .shortcuts-list {
+      max-height: 50vh;
+      overflow-y: auto;
+      margin-bottom: 14px;
+    }
+
     .shortcuts-table {
       width: 100%;
       border-collapse: collapse;
@@ -378,10 +558,16 @@
     }
 
     .shortcuts-table td {
-      padding: 6px 10px;
+      padding: 5px 10px;
       border-bottom: 1px solid #313244;
       text-align: right;
       font-size: 13px;
+    }
+    .shortcuts-table td:first-child {
+      color: var(--text);
+    }
+    .shortcuts-table td:last-child {
+      color: var(--muted);
     }
 
     .shortcuts-table kbd {
@@ -400,9 +586,14 @@
 <body>
   <div id="app">
     <div id="sidebar" class="sidebar">
-      <div class="sidebar-header">
+      <div class="sidebar-header" id="sidebar-header">
+        <button id="sidebar-chevron" class="sidebar-chevron" title="پنهان/نمایش کاوشگر">▾</button>
         <span class="sidebar-title">کاوشگر</span>
-        <button id="open-folder-btn" class="btn btn-small" title="باز کردن پوشه">📂</button>
+        <div class="sidebar-actions">
+          <button id="open-btn" class="btn btn-small" title="باز کردن فایل">📂</button>
+          <button id="save-btn" class="btn btn-small" title="ذخیره فایل">💾</button>
+          <button id="open-folder-btn" class="btn btn-small" title="باز کردن پوشه">📁</button>
+        </div>
       </div>
       <div id="explorer"><span class="muted">یک پوشه باز کنید</span></div>
     </div>
@@ -410,18 +601,9 @@
     <div id="main">
       <div id="toolbar">
         <img src="./build/logo.svg" alt="کلنگ" class="toolbar-logo" style="height: 28px; width: 28px; margin-inline-end: 0.5rem;">
-        <button id="sidebar-toggle-btn" class="btn btn-accent" title="نمایش/پنهان کاوشگر">🗂</button>
         <button id="run-btn" class="btn btn-run" title="اجرا">▶ اجرا</button>
         <button id="stop-btn" class="btn btn-stop" title="توقف" disabled>■ توقف</button>
-        <button id="open-btn" class="btn btn-accent" title="باز کردن فایل">📂 باز کردن</button>
-        <button id="save-btn" class="btn btn-accent" title="ذخیره فایل">💾 ذخیره</button>
-        <select id="language-select" title="زبان فایل">
-          <option value="kolang">کلنگ</option>
-          <option value="python">Python</option>
-          <option value="json">JSON</option>
-          <option value="html">HTML</option>
-          <option value="css">CSS</option>
-        </select>
+        <button id="direction-toggle" class="btn btn-small" title="جهت متن">↩️</button>
         <button id="settings-btn" class="btn btn-accent" title="تنظیمات">⚙ تنظیمات</button>
         <button id="shortcuts-btn" class="btn btn-accent" title="میان‌برها">⌨ میان‌برها</button>
         <div class="spacer"></div>
@@ -432,7 +614,15 @@
 
       <div id="editor"></div>
 
-      <div id="output"><span class="muted">خروجی برنامه در اینجا نمایش داده می‌شود…</span></div>
+      <div id="output-resizer" title="تغییر اندازه"></div>
+
+      <div id="output-panel">
+        <div id="output-header" title="پنهان/نمایش خروجی">
+          <button id="output-toggle-btn" type="button" title="پنهان/نمایش خروجی" aria-label="پنهان/نمایش خروجی"><span id="output-toggle-icon">▾</span></button>
+          <span class="output-header-title">خروجی</span>
+        </div>
+        <div id="output"></div>
+      </div>
     </div>
 
     <div id="settings-modal" class="modal hidden">
@@ -462,6 +652,7 @@
             <option value="light">روشن</option>
           </select>
 
+          <label class="check-row"><input type="checkbox" id="auto-theme-checkbox" checked /> تم خودکار (بر اساس سیستم)</label>
           <label class="check-row"><input type="checkbox" id="word-wrap-checkbox" checked /> شکستن خطوط (word wrap)</label>
           <label class="check-row"><input type="checkbox" id="line-numbers-checkbox" checked /> نمایش شماره خط‌ها</label>
           <label class="check-row"><input type="checkbox" id="auto-save-checkbox" /> ذخیره خودکار هنگام تغییر</label>
@@ -469,8 +660,7 @@
         </div>
 
         <div class="modal-actions">
-          <button id="settings-save" class="btn btn-run">ذخیره</button>
-          <button id="settings-cancel" class="btn">انصراف</button>
+          <button id="settings-reset" class="btn">بازنشانی به پیش‌فرض</button>
         </div>
       </div>
     </div>
@@ -478,29 +668,9 @@
     <div id="shortcuts-modal" class="modal hidden">
       <div class="modal-content">
         <h2>میان‌برهای صفحه‌کلید</h2>
-        <table class="shortcuts-table">
-          <tr><td><kbd>Ctrl/Cmd+Enter</kbd> یا <kbd>F5</kbd></td><td>اجرای برنامه</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+S</kbd></td><td>ذخیره فایل</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+O</kbd></td><td>باز کردن فایل</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+,</kbd></td><td>تنظیمات</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+/</kbd></td><td>نظر (کامنت) خط</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+]</kbd></td><td>افزایش تورفتگی</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+[</kbd></td><td>کاهش تورفتگی</td></tr>
-          <tr><td><kbd>Alt+↑/↓</kbd></td><td>جابه‌جایی خط</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+Z</kbd></td><td>بازگشت</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+Shift+Z</kbd></td><td>از نو</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+F</kbd></td><td>جستجو</td></tr>
-          <tr><td><kbd>Tab</kbd></td><td>تورفتگی</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+Shift+[</kbd></td><td>تا کردن کد</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+Shift+]</kbd></td><td>باز کردن کد</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+Space</kbd></td><td>تکمیل خودکار</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+Alt+↑/↓</kbd></td><td>افزودن مکان‌نمای بالا/پایین</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+D</kbd></td><td>انتخاب تکرار بعدی</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+Click</kbd></td><td>افزودن مکان‌نما</td></tr>
-          <tr><td><kbd>F8</kbd></td><td>خطای بعدی</td></tr>
-          <tr><td><kbd>Ctrl/Cmd+Shift+M</kbd></td><td>پنل خطاها</td></tr>
-        </table>
+        <div id="shortcuts-list" class="shortcuts-list"></div>
         <div class="modal-actions">
+          <button id="shortcuts-edit-json" class="btn btn-accent">ویرایش میان‌برها (JSON)</button>
           <button id="shortcuts-close" class="btn">بستن</button>
         </div>
       </div>

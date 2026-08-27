@@ -716,8 +716,11 @@ async fn linter_run(app: AppHandle, state: State<'_, AppState>, code: String) ->
 }
 
 /// دیالوگ باز کردن فایل .kolang.
+///
+/// async تا blocking_pick_file روی نخ کارگر اجرا شود، نه روی نخ اصلی —
+/// در غیر این صورت حلقهٔ رویداد macOS قفل شده و دیالوگ XPC کرش می‌کند.
 #[tauri::command]
-fn file_open(app: AppHandle) -> Option<OpenFileResult> {
+async fn file_open(app: AppHandle) -> Option<OpenFileResult> {
     let result = app
         .dialog()
         .file()
@@ -742,7 +745,7 @@ fn file_open(app: AppHandle) -> Option<OpenFileResult> {
 
 /// دیالوگ ذخیرهٔ فایل .kolang.
 #[tauri::command]
-fn file_save(app: AppHandle, content: String) -> Option<SaveFileResult> {
+async fn file_save(app: AppHandle, content: String) -> Option<SaveFileResult> {
     let result = app
         .dialog()
         .file()
@@ -808,7 +811,7 @@ fn fs_list_dir(dir_path: String) -> ListDirResult {
 
 /// دیالوگ انتخاب پوشه.
 #[tauri::command]
-fn fs_open_folder(app: AppHandle) -> Option<String> {
+async fn fs_open_folder(app: AppHandle) -> Option<String> {
     let result = app
         .dialog()
         .file()
@@ -895,7 +898,7 @@ fn settings_set(app: AppHandle, state: State<AppState>, settings: Settings) -> b
 
 /// دیالوگ انتخاب مسیر مفسر.
 #[tauri::command]
-fn settings_pick_path(app: AppHandle) -> Option<String> {
+async fn settings_pick_path(app: AppHandle) -> Option<String> {
     let result = app
         .dialog()
         .file()
@@ -906,7 +909,7 @@ fn settings_pick_path(app: AppHandle) -> Option<String> {
 
 /// دیالوگ انتخاب مسیر لینتر.
 #[tauri::command]
-fn settings_pick_linter_path(app: AppHandle) -> Option<String> {
+async fn settings_pick_linter_path(app: AppHandle) -> Option<String> {
     let result = app
         .dialog()
         .file()

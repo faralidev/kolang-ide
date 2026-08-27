@@ -87,13 +87,11 @@ const kolangEditorTheme = EditorView.theme({
   '.cm-content': {
     caretColor: '#f5e0dc',
     direction: 'rtl',
-    unicodeBidi: 'isolate',
     textAlign: 'right',
     fontFamily: "'Vazirmatn', 'Iranian Sans', 'Sahel', monospace",
   },
   '.cm-line': {
     direction: 'rtl',
-    unicodeBidi: 'isolate',
   },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: '#f5e0dc' },
   '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': {
@@ -248,7 +246,181 @@ const kolangHighlightStyle = HighlightStyle.define([
   { tag: tags.meta, color: '#f5c2e7' },
 ])
 
-function kolangTheme() {
+// ---------------------------------------------------------------------------
+// Light theme — Catppuccin Latte (the light counterpart to Mocha).
+// Mirrors kolangEditorTheme / kolangHighlightStyle but with Latte colors so
+// the editor surface, gutters, tooltips, lint markers, and syntax tokens all
+// switch correctly when body.light is applied. Selected by kolangTheme(light).
+// ---------------------------------------------------------------------------
+
+const kolangEditorThemeLight = EditorView.theme({
+  '&': {
+    height: '100%',
+    backgroundColor: '#eff1f5', // Latte Base
+    color: '#4c4f69',           // Latte Text
+    direction: 'ltr',
+  },
+  '.cm-scroller': {
+    overflow: 'auto',
+    scrollbarWidth: 'thin',
+    scrollbarColor: '#acb0be #e6e9ef', // Surface2 / Mantle
+  },
+  '.cm-scroller::-webkit-scrollbar': { width: '10px', height: '10px' },
+  '.cm-scroller::-webkit-scrollbar-track': { background: '#e6e9ef' },
+  '.cm-scroller::-webkit-scrollbar-thumb': { background: '#acb0be', borderRadius: '5px' },
+  '.cm-scroller::-webkit-scrollbar-thumb:hover': { background: '#9ca0b0' },
+  '.cm-content': {
+    caretColor: '#dc8a78', // Rosewater
+    direction: 'rtl',
+    textAlign: 'right',
+    fontFamily: "'Vazirmatn', 'Iranian Sans', 'Sahel', monospace",
+  },
+  '.cm-line': {
+    direction: 'rtl',
+  },
+  '.cm-cursor, .cm-dropCursor': { borderLeftColor: '#dc8a78' },
+  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': {
+    backgroundColor: '#7287fd40', // Lavender @ 25%
+  },
+  '.cm-gutters': {
+    backgroundColor: '#e6e9ef',   // Mantle
+    color: '#6c6f85',             // Subtext0
+    border: 'none',
+    order: 2,
+    right: 0,
+    left: 'auto',
+    borderLeft: '1px solid #bcc0cc', // Surface1
+  },
+  '& .cm-tooltip': {
+    backgroundColor: '#ccd0da',   // Surface0
+    border: '1px solid #acb0be',  // Surface2
+    borderRadius: '6px',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+    fontFamily: "'Vazirmatn', 'Iranian Sans', monospace",
+    fontSize: '13px',
+  },
+  '& .cm-tooltip-autocomplete': {
+    direction: 'rtl',
+    textAlign: 'right',
+    '& > ul > li': {
+      padding: '4px 10px',
+      display: 'flex',
+      alignItems: 'baseline',
+      gap: '10px',
+    },
+    '& > ul > li[aria-selected]': {
+      backgroundColor: '#bcc0cc', // Surface1
+      color: '#4c4f69',           // Text
+    },
+    '& .cm-completionLabel': {
+      color: '#4c4f69',
+      fontWeight: '500',
+      fontFamily: "'Vazirmatn', monospace",
+    },
+    '& .cm-completionDetail': {
+      color: '#6c6f85',           // Subtext0
+      fontSize: '12px',
+      fontStyle: 'italic',
+      paddingRight: '6px',
+      borderRight: '1px solid #acb0be',
+      marginRight: '2px',
+      maxWidth: '24em',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
+    },
+    '& .cm-completionIcon': {
+      color: '#8839ef',           // Mauve
+      marginRight: '4px',
+    },
+    '& .cm-completionType': {
+      color: '#179299',           // Teal
+      fontSize: '11px',
+    },
+  },
+  // Lint markers — same SVGs work on light (they're already bright colors).
+  '.cm-lint-marker-error': {
+    content: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 40\"><circle cx=\"20\" cy=\"20\" r=\"15\" fill=\"%23ff5c5c\" stroke=\"%23ff1f1f\" stroke-width=\"6\"/></svg>')",
+  },
+  '.cm-lint-marker-warning': {
+    content: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 40\"><path fill=\"%23ffd066\" stroke=\"%23ffb300\" stroke-width=\"6\" stroke-linejoin=\"round\" d=\"M20 6L37 35L3 35Z\"/></svg>')",
+  },
+  '.cm-lint-marker-info': {
+    content: "url('data:image/svg+xml,<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 40 40\"><path fill=\"%2366b8ff\" stroke=\"%233d9bff\" stroke-width=\"6\" stroke-linejoin=\"round\" d=\"M5 5L35 5L35 35L5 35Z\"/></svg>')",
+  },
+  '.cm-lintRange-error': { borderBottom: '2px dotted #d20f39' },     // Red
+  '.cm-lintRange-warning': { borderBottom: '2px dotted #df8e1d' },   // Yellow
+  '.cm-lintRange-info': { borderBottom: '2px dotted #1e66f5' },      // Blue
+  '.cm-lintRange-active': { backgroundColor: '#df8e1d33' },
+  '.cm-tooltip-lint': {
+    backgroundColor: '#e6e9ef',   // Mantle
+    color: '#4c4f69',             // Text
+    border: '1px solid #bcc0cc',  // Surface1
+    borderRadius: '6px',
+    direction: 'rtl',
+    textAlign: 'right',
+    fontFamily: "'Vazirmatn', monospace",
+    fontSize: '12px',
+  },
+  '.cm-diagnosticText': { fontSize: '12px', lineHeight: '1.4' },
+  '.cm-diagnosticSource': { color: '#8c8fa1', fontStyle: 'italic' },
+  '.cm-diagnostic-error': { color: '#d20f39' },   // Red
+  '.cm-diagnostic-warning': { color: '#df8e1d' }, // Yellow
+  '.cm-diagnostic-info': { color: '#1e66f5' },    // Blue
+  '.cm-kolang-hover': {
+    direction: 'rtl',
+    textAlign: 'right',
+    maxWidth: '32em',
+    padding: '6px 12px',
+    fontSize: '12px',
+    lineHeight: '1.7',
+    fontFamily: "'Vazirmatn', monospace",
+  },
+  '.cm-kolang-hover-kind': {
+    color: '#8839ef',             // Mauve
+    fontWeight: 'bold',
+    fontSize: '11px',
+    marginBottom: '2px',
+  },
+  '.cm-kolang-hover-desc': {
+    color: '#4c4f69',             // Text
+    whiteSpace: 'pre-wrap',
+  },
+  '.cm-activeLine': { backgroundColor: '#bcc0cc40' },         // Surface1 @ 25%
+  '.cm-activeLineGutter': { backgroundColor: '#bcc0cc', color: '#4c4f69' },
+  '.cm-foldGutter .cm-gutterElement': { color: '#6c6f85', cursor: 'pointer' },
+  '.cm-foldGutter .cm-gutterElement:hover': { color: '#4c4f69' },
+  '.cm-matchingBracket': { backgroundColor: '#7287fd40', outline: '1px solid #1e66f580' },
+}, { dark: false })
+
+const kolangHighlightStyleLight = HighlightStyle.define([
+  { tag: tags.comment, color: '#7c7f93', fontStyle: 'italic' },         // Overlay2
+  { tag: tags.string, color: '#40a02b' },                               // Green
+  { tag: tags.number, color: '#fe640b' },                               // Peach
+  { tag: tags.bool, color: '#fe640b', fontWeight: 'bold' },             // Peach
+  { tag: tags.null, color: '#fe640b' },                                 // Peach
+  { tag: tags.controlKeyword, color: '#8839ef', fontWeight: 'bold' },   // Mauve
+  { tag: tags.definitionKeyword, color: '#df8e1d', fontWeight: 'bold' },// Yellow
+  { tag: tags.keyword, color: '#04a5e5', fontStyle: 'italic' },         // Sky
+  { tag: tags.operatorKeyword, color: '#d20f39' },                      // Red
+  { tag: tags.operator, color: '#1e66f5' },                             // Blue
+  { tag: tags.standard(tags.function(tags.variableName)), color: '#40a02b' }, // Green
+  { tag: tags.function(tags.variableName), color: '#1e66f5' },          // Blue
+  { tag: tags.typeName, color: '#179299', fontStyle: 'italic' },        // Teal
+  { tag: tags.className, color: '#d20f39', textDecoration: 'underline' },// Red
+  { tag: tags.namespace, color: '#04a5e5', fontStyle: 'italic' },       // Sky
+  { tag: tags.self, color: '#d20f39', fontStyle: 'italic' },            // Red
+  { tag: tags.variableName, color: '#4c4f69' },                         // Text
+  { tag: tags.punctuation, color: '#7c7f93' },                          // Overlay2
+  { tag: tags.meta, color: '#ea76cb' },                                 // Pink
+])
+
+// Returns the editor theme + syntax highlighting for the requested mode.
+// `light` selects the Catppuccin Latte variant; default is Mocha (dark).
+function kolangTheme(light) {
+  if (light) {
+    return [kolangEditorThemeLight, syntaxHighlighting(kolangHighlightStyleLight, { fallback: true })]
+  }
   return [kolangEditorTheme, syntaxHighlighting(kolangHighlightStyle, { fallback: true })]
 }
 
