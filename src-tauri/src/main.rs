@@ -9,8 +9,9 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, State};
@@ -57,14 +58,7 @@ struct Settings {
     linter_path: String,
 }
 
-impl Default for Settings {
-    fn default() -> Self {
-        Settings {
-            kolang_path: resolve_default_kolang_bin(),
-            linter_path: resolve_default_linter_bin(),
-        }
-    }
-}
+
 
 /// یک ورودی پوشه/فایل در فایل‌اکسپلورر.
 #[derive(Serialize)]
@@ -118,21 +112,118 @@ struct AppState {
 }
 
 // ---------------------------------------------------------------------------
+// وضعیت دانلود باینری‌ها (مدیریت‌شده، قابل اشتراک با نخ پس‌زمینه)
+// ---------------------------------------------------------------------------
+
+#[derive(Clone)]
+struct DownloadState {
+    kolang_ready: Arc<AtomicBool>,
+    linter_ready: Arc<AtomicBool>,
+    downloading: Arc<AtomicBool>,
+    kolang_path: Arc<Mutex<String>>,
+    linter_path: Arc<Mutex<String>>,
+}
+
+impl Default for DownloadState {
+    fn default() -> Self {
+        DownloadState {
+            kolang_ready: Arc::new(AtomicBool::new(false)),
+            linter_ready: Arc::new(AtomicBool::new(false)),
+            downloading: Arc::new(AtomicBool::new(false)),
+            kolang_path: Arc::new(Mutex::new(String::new())),
+            linter_path: Arc::new(Mutex::new(String::new())),
+        }
+    }
+}
+
+/// نتیجهٔ get_binary_status برای نمایش وضعیت دانلود در UI.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BinaryStatus {
+    kolang_ready: bool,
+    linter_ready: bool,
+    kolang_path: String,
+    linter_path: String,
+    downloading: bool,
+}
+
+// ---------------------------------------------------------------------------
 // رزولو مسیر باینری مفسر و لینتر
 // ---------------------------------------------------------------------------
 
-fn resolve_default_kolang_bin() -> String {
+/// نام فایل باینری با در نظر گرفتن پسوند exe در ویندوز.
+fn binary_name(name: &str) -> String {
+    if cfg!(windows) {
+        format!("{}.exe", name)
+    } else {
+        name.to_string()
+    }
+}
+
+/// باینری کش‌شده در app_data_dir/bin (دانلودشده در اولین اجرا).
+fn cached_bin(app: &AppHandle, name: &str) -> Option<PathBuf> {
+    let app_data = app.path().app_data_dir().ok()?;
+    let p = app_data.join("bin").join(binary_name(name));
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
+}
+
+/// تنظیمات پیش‌فرض با رزولوشن باینری‌ها (باینری کش‌شده، سپس PATH).
+fn default_settings(app: &AppHandle) -> Settings {
+    Settings {
+        kolang_path: resolve_default_kolang_bin(app),
+        linter_path: resolve_default_linter_bin(app),
+    }
+}
+
+fn resolve_default_kolang_bin(app: &AppHandle) -> String {
     if let Ok(p) = std::env::var("KOLANG_BIN") {
         return p;
     }
+    // اولویت با باینری دانلودشده در اولین اجرا است.
+    if let Some(p) = cached_bin(app, "kolang") {
+        return p.to_string_lossy().to_string();
+    }
     // در حالت بسته‌بندی‌شده، باینری در resources/bin/ قرار دارد.
-    // در حالت توسعه، kolang باید روی PATH باشد.
+    // در حالت توسعه، bin/kolang نسبت به ریشهٔ پروژه.
+    let name = if cfg!(windows) { "kolang.exe" } else { "kolang" };
+    if let Some(p) = resource_bin(app, name) {
+        return p.to_string_lossy().to_string();
+    }
+    let dev_bin = std::env::current_dir()
+        .ok()
+        .map(|d| d.join("bin").join("kolang"))
+        .filter(|p| p.exists());
+    if let Some(p) = dev_bin {
+        return p.to_string_lossy().to_string();
+    }
     "kolang".to_string()
 }
 
-fn resolve_default_linter_bin() -> String {
+fn resolve_default_linter_bin(app: &AppHandle) -> String {
     if let Ok(p) = std::env::var("KOLANG_LINTER") {
         return p;
+    }
+    if let Some(p) = cached_bin(app, "kolang-linter") {
+        return p.to_string_lossy().to_string();
+    }
+    let name = if cfg!(windows) {
+        "kolang-linter.exe"
+    } else {
+        "kolang-linter"
+    };
+    if let Some(p) = resource_bin(app, name) {
+        return p.to_string_lossy().to_string();
+    }
+    let dev_bin = std::env::current_dir()
+        .ok()
+        .map(|d| d.join("bin").join("kolang-linter"))
+        .filter(|p| p.exists());
+    if let Some(p) = dev_bin {
+        return p.to_string_lossy().to_string();
     }
     "kolang-linter".to_string()
 }
@@ -149,31 +240,159 @@ fn resource_bin(app: &AppHandle, name: &str) -> Option<PathBuf> {
 
 fn current_kolang_path(app: &AppHandle, settings: &Settings) -> String {
     let s = settings.kolang_path.trim();
-    if !s.is_empty() && s != "kolang" {
+    if !s.is_empty() && s != "kolang" && s != "kolang.exe" {
         return s.to_string();
     }
-    // تلاش برای پیدا کردن باینری بسته‌بندی‌شده
-    let name = if cfg!(windows) { "kolang.exe" } else { "kolang" };
-    if let Some(p) = resource_bin(app, name) {
-        return p.to_string_lossy().to_string();
-    }
-    "kolang".to_string()
+    // باینری کش‌شده، سپس بسته‌بندی‌شده، سپس PATH.
+    resolve_default_kolang_bin(app)
 }
 
 fn current_linter_path(app: &AppHandle, settings: &Settings) -> String {
     let s = settings.linter_path.trim();
-    if !s.is_empty() && s != "kolang-linter" {
+    if !s.is_empty() && s != "kolang-linter" && s != "kolang-linter.exe" {
         return s.to_string();
     }
-    let name = if cfg!(windows) {
-        "kolang-linter.exe"
-    } else {
-        "kolang-linter"
+    resolve_default_linter_bin(app)
+}
+
+// ---------------------------------------------------------------------------
+// دانلود باینری‌های کلنگ و لینتر در اولین اجرا
+// ---------------------------------------------------------------------------
+
+/// تشخیص os/arch برای URL انتشار: darwin/linux/windows + arm64/amd64.
+fn target_spec() -> Option<(String, String, &'static str)> {
+    let os = match std::env::consts::OS {
+        "macos" => "darwin",
+        "linux" => "linux",
+        "windows" => "windows",
+        _ => return None,
     };
-    if let Some(p) = resource_bin(app, name) {
-        return p.to_string_lossy().to_string();
+    let arch = match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        "x86_64" => "amd64",
+        _ => return None,
+    };
+    let ext = if os == "windows" { "zip" } else { "tar.gz" };
+    Some((os.to_string(), arch.to_string(), ext))
+}
+
+fn make_executable(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(path) {
+            let mut perm = metadata.permissions();
+            perm.set_mode(perm.mode() | 0o111);
+            let _ = fs::set_permissions(path, perm);
+        }
     }
-    "kolang-linter".to_string()
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+}
+
+/// استخراج باینری از آرشیو tar.gz (فایل تکی با نام `name`).
+fn extract_tar_gz(archive_path: &Path, bin_dir: &Path, name: &str) -> Option<PathBuf> {
+    use flate2::read::GzDecoder;
+    use tar::Archive;
+
+    let file = fs::File::open(archive_path).ok()?;
+    let mut archive = Archive::new(GzDecoder::new(file));
+    let exe_name = binary_name(name);
+
+    let mut entries = archive.entries().ok()?;
+    while let Some(entry) = entries.next() {
+        let mut entry = entry.ok()?;
+        if entry.header().entry_type().is_dir() {
+            continue;
+        }
+        let entry_path = entry.path().ok()?.into_owned();
+        let fname = entry_path
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if fname == exe_name || fname == name {
+            let dest = bin_dir.join(&exe_name);
+            let mut out = fs::File::create(&dest).ok()?;
+            std::io::copy(&mut entry, &mut out).ok()?;
+            return Some(dest);
+        }
+    }
+    None
+}
+
+/// استخراج باینری از آرشیو zip (مخصوص ویندوز).
+fn extract_zip(archive_path: &Path, bin_dir: &Path, name: &str) -> Option<PathBuf> {
+    let file = fs::File::open(archive_path).ok()?;
+    let mut archive = zip::ZipArchive::new(file).ok()?;
+    let exe_name = binary_name(name);
+
+    for i in 0..archive.len() {
+        let mut entry = archive.by_index(i).ok()?;
+        if entry.is_dir() {
+            continue;
+        }
+        let fname = Path::new(entry.name())
+            .file_name()
+            .map(|f| f.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if fname == exe_name || fname == name {
+            let dest = bin_dir.join(&exe_name);
+            let mut out = fs::File::create(&dest).ok()?;
+            std::io::copy(&mut entry, &mut out).ok()?;
+            return Some(dest);
+        }
+    }
+    None
+}
+
+/// اطمینان از وجود باینری: اگر در app_data_dir/bin نباشد، از GitHub دانلود می‌شود.
+/// در صورت موفقیت مسیر باینری و در غیر این صورت None برمی‌گرداند (فال‌بک به PATH).
+fn ensure_binary(app: &AppHandle, name: &str, repo: &str) -> Option<PathBuf> {
+    let app_data = app.path().app_data_dir().ok()?;
+    let bin_dir = app_data.join("bin");
+    fs::create_dir_all(&bin_dir).ok()?;
+
+    let dest = bin_dir.join(binary_name(name));
+    if dest.exists() {
+        return Some(dest);
+    }
+
+    let (os, arch, ext) = target_spec()?;
+    let url = format!(
+        "https://github.com/faralidev/{repo}/releases/latest/download/{name}-{os}-{arch}.{ext}"
+    );
+    eprintln!("[kolang-ide] Downloading {} from {}", name, url);
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .ok()?;
+    let response = client.get(&url).send().ok()?;
+    if !response.status().is_success() {
+        eprintln!(
+            "[kolang-ide] Download of {} failed with status {}",
+            name,
+            response.status()
+        );
+        return None;
+    }
+    let bytes = response.bytes().ok()?;
+
+    let tmp = bin_dir.join(format!("{}.download.{}", name, ext));
+    fs::write(&tmp, &bytes).ok()?;
+
+    let extracted = match ext {
+        "zip" => extract_zip(&tmp, &bin_dir, name),
+        _ => extract_tar_gz(&tmp, &bin_dir, name),
+    };
+    let _ = fs::remove_file(&tmp);
+    let dest = extracted?;
+
+    make_executable(&dest);
+    eprintln!("[kolang-ide] Installed {} at {}", name, dest.display());
+    Some(dest)
 }
 
 // ---------------------------------------------------------------------------
@@ -188,11 +407,11 @@ fn settings_file_path(app: &AppHandle) -> Option<PathBuf> {
 fn load_settings(app: &AppHandle) -> Settings {
     let path = match settings_file_path(app) {
         Some(p) => p,
-        None => return Settings::default(),
+        None => return default_settings(app),
     };
     match fs::read_to_string(&path) {
-        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
-        Err(_) => Settings::default(),
+        Ok(content) => serde_json::from_str(&content).unwrap_or_else(|_| default_settings(app)),
+        Err(_) => default_settings(app),
     }
 }
 
@@ -448,7 +667,7 @@ async fn linter_run(app: AppHandle, state: State<'_, AppState>, code: String) ->
 
 /// دیالوگ باز کردن فایل .kolang.
 #[tauri::command]
-fn file_open(app: AppHandle) -> Option<OpenFileResult> {
+async fn file_open(app: AppHandle) -> Option<OpenFileResult> {
     let result = app
         .dialog()
         .file()
@@ -473,7 +692,7 @@ fn file_open(app: AppHandle) -> Option<OpenFileResult> {
 
 /// دیالوگ ذخیرهٔ فایل .kolang.
 #[tauri::command]
-fn file_save(app: AppHandle, content: String) -> Option<SaveFileResult> {
+async fn file_save(app: AppHandle, content: String) -> Option<SaveFileResult> {
     let result = app
         .dialog()
         .file()
@@ -589,12 +808,12 @@ fn settings_get(_app: AppHandle, state: State<AppState>) -> Settings {
 fn settings_set(app: AppHandle, state: State<AppState>, settings: Settings) -> bool {
     let next = Settings {
         kolang_path: if settings.kolang_path.trim().is_empty() {
-            resolve_default_kolang_bin()
+            resolve_default_kolang_bin(&app)
         } else {
             settings.kolang_path.trim().to_string()
         },
         linter_path: if settings.linter_path.trim().is_empty() {
-            resolve_default_linter_bin()
+            resolve_default_linter_bin(&app)
         } else {
             settings.linter_path.trim().to_string()
         },
@@ -627,6 +846,18 @@ fn settings_pick_linter_path(app: AppHandle) -> Option<String> {
     Some(result.into_path().ok()?.to_string_lossy().to_string())
 }
 
+/// وضعیت باینری‌های دانلودشده (برای نمایش پیشرفت دانلود در UI).
+#[tauri::command]
+fn get_binary_status(state: State<DownloadState>) -> BinaryStatus {
+    BinaryStatus {
+        kolang_ready: state.kolang_ready.load(Ordering::Relaxed),
+        linter_ready: state.linter_ready.load(Ordering::Relaxed),
+        kolang_path: state.kolang_path.lock().unwrap().clone(),
+        linter_path: state.linter_path.lock().unwrap().clone(),
+        downloading: state.downloading.load(Ordering::Relaxed),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // ابزار
 // ---------------------------------------------------------------------------
@@ -652,6 +883,53 @@ fn main() {
                 running_child: Arc::new(AsyncMutex::new(None)),
                 settings: Mutex::new(settings),
             });
+
+            // وضعیت دانلود باینری‌ها (در نخ پس‌زمینه به‌روزرسانی می‌شود).
+            let dl = DownloadState::default();
+            {
+                *dl.kolang_path.lock().unwrap() = resolve_default_kolang_bin(app.handle());
+                *dl.linter_path.lock().unwrap() = resolve_default_linter_bin(app.handle());
+                dl.kolang_ready
+                    .store(cached_bin(app.handle(), "kolang").is_some(), Ordering::Relaxed);
+                dl.linter_ready.store(
+                    cached_bin(app.handle(), "kolang-linter").is_some(),
+                    Ordering::Relaxed,
+                );
+            }
+            app.manage(dl.clone());
+
+            // دانلود غیرمسدودکنندهٔ باینری‌ها تا UI فریز نشود.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                dl.downloading.store(true, Ordering::Relaxed);
+
+                if let Some(p) = ensure_binary(&handle, "kolang", "kolang") {
+                    dl.kolang_ready.store(true, Ordering::Relaxed);
+                    *dl.kolang_path.lock().unwrap() = p.to_string_lossy().to_string();
+                    if let Some(state) = handle.try_state::<AppState>() {
+                        let mut s = state.settings.lock().unwrap();
+                        if s.kolang_path.trim().is_empty() || s.kolang_path == "kolang" {
+                            s.kolang_path = p.to_string_lossy().to_string();
+                            save_settings(&handle, &s);
+                        }
+                    }
+                }
+
+                if let Some(p) = ensure_binary(&handle, "kolang-linter", "kolang-linter") {
+                    dl.linter_ready.store(true, Ordering::Relaxed);
+                    *dl.linter_path.lock().unwrap() = p.to_string_lossy().to_string();
+                    if let Some(state) = handle.try_state::<AppState>() {
+                        let mut s = state.settings.lock().unwrap();
+                        if s.linter_path.trim().is_empty() || s.linter_path == "kolang-linter" {
+                            s.linter_path = p.to_string_lossy().to_string();
+                            save_settings(&handle, &s);
+                        }
+                    }
+                }
+
+                dl.downloading.store(false, Ordering::Relaxed);
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -668,6 +946,7 @@ fn main() {
             settings_set,
             settings_pick_path,
             settings_pick_linter_path,
+            get_binary_status,
         ])
         .run(tauri::generate_context!())
         .expect("خطا در اجرای kolang-ide");
