@@ -667,7 +667,7 @@ async fn linter_run(app: AppHandle, state: State<'_, AppState>, code: String) ->
 
 /// دیالوگ باز کردن فایل .kolang.
 #[tauri::command]
-async fn file_open(app: AppHandle) -> Option<OpenFileResult> {
+fn file_open(app: AppHandle) -> Option<OpenFileResult> {
     let result = app
         .dialog()
         .file()
@@ -692,7 +692,7 @@ async fn file_open(app: AppHandle) -> Option<OpenFileResult> {
 
 /// دیالوگ ذخیرهٔ فایل .kolang.
 #[tauri::command]
-async fn file_save(app: AppHandle, content: String) -> Option<SaveFileResult> {
+fn file_save(app: AppHandle, content: String) -> Option<SaveFileResult> {
     let result = app
         .dialog()
         .file()
