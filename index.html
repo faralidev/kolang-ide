@@ -153,6 +153,72 @@
       text-overflow: ellipsis;
     }
 
+    /* ---- Language selector ---- */
+    #language-select {
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      outline: none;
+    }
+    #language-select:hover { border-color: var(--muted); }
+    #language-select:focus { border-color: var(--accent); }
+
+    /* ---- Tab bar ---- */
+    #tab-bar {
+      display: flex;
+      align-items: stretch;
+      flex: 0 0 auto;
+      background: #181825;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+      overflow-y: hidden;
+      min-height: 34px;
+      max-height: 34px;
+      direction: rtl;
+      scrollbar-width: thin;
+    }
+
+    .tab {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 12px;
+      min-width: 120px;
+      max-width: 220px;
+      border-left: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 12px;
+      white-space: nowrap;
+      user-select: none;
+    }
+    .tab:hover { background: #31324466; color: var(--text); }
+    .tab.active {
+      background: var(--bg);
+      color: var(--text);
+      border-top: 2px solid var(--accent);
+    }
+    .tab-label {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      direction: rtl;
+    }
+    .tab-close {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1;
+      padding: 0 2px;
+      border-radius: 3px;
+    }
+    .tab-close:hover { color: var(--error); background: #45475a66; }
+
     /* ---- Editor / output split ---- */
     #editor {
       flex: 1;
@@ -294,11 +360,20 @@
         <button id="stop-btn" class="btn btn-stop" title="توقف" disabled>■ توقف</button>
         <button id="open-btn" class="btn btn-accent" title="باز کردن فایل">📂 باز کردن</button>
         <button id="save-btn" class="btn btn-accent" title="ذخیره فایل">💾 ذخیره</button>
+        <select id="language-select" title="زبان فایل">
+          <option value="kolang">کلنگ</option>
+          <option value="python">Python</option>
+          <option value="json">JSON</option>
+          <option value="html">HTML</option>
+          <option value="css">CSS</option>
+        </select>
         <button id="settings-btn" class="btn btn-accent" title="تنظیمات">⚙ تنظیمات</button>
         <button id="shortcuts-btn" class="btn btn-accent" title="میان‌برها">⌨ میان‌برها</button>
         <div class="spacer"></div>
         <span id="status">آماده</span>
       </div>
+
+      <div id="tab-bar"></div>
 
       <div id="editor"></div>
 
@@ -329,10 +404,14 @@
       <div class="modal-content">
         <h2>میان‌برهای صفحه‌کلید</h2>
         <table class="shortcuts-table">
-          <tr><td><kbd>Ctrl/Cmd+Enter</kbd></td><td>اجرای برنامه</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+Enter</kbd> یا <kbd>F5</kbd></td><td>اجرای برنامه</td></tr>
           <tr><td><kbd>Ctrl/Cmd+S</kbd></td><td>ذخیره فایل</td></tr>
           <tr><td><kbd>Ctrl/Cmd+O</kbd></td><td>باز کردن فایل</td></tr>
           <tr><td><kbd>Ctrl/Cmd+,</kbd></td><td>تنظیمات</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+/</kbd></td><td>نظر (کامنت) خط</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+]</kbd></td><td>افزایش تورفتگی</td></tr>
+          <tr><td><kbd>Ctrl/Cmd+[</kbd></td><td>کاهش تورفتگی</td></tr>
+          <tr><td><kbd>Alt+↑/↓</kbd></td><td>جابه‌جایی خط</td></tr>
           <tr><td><kbd>Ctrl/Cmd+Z</kbd></td><td>بازگشت</td></tr>
           <tr><td><kbd>Ctrl/Cmd+Shift+Z</kbd></td><td>از نو</td></tr>
           <tr><td><kbd>Ctrl/Cmd+F</kbd></td><td>جستجو</td></tr>

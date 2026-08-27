@@ -2,22 +2,29 @@
 //
 // Bundled by esbuild into bundle.js (classic script loaded by index.html);
 // this file is never loaded directly by the page. Mounts the CodeMirror 6
-// editor with the kolang language module, wires toolbar buttons + keyboard
-// shortcuts to the Tauri backend (invoke API), and renders program output.
+// editor with the kolang language module, wires toolbar buttons, tabs,
+// language switching and keyboard shortcuts to the Tauri backend (invoke
+// API), and renders program output.
 
 import { invoke } from '@tauri-apps/api/core'
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from '@codemirror/view'
 import { EditorState } from '@codemirror/state'
-import { defaultKeymap, history, historyKeymap, indentWithTab, addCursorAbove, addCursorBelow } from '@codemirror/commands'
+import { defaultKeymap, history, historyKeymap, indentWithTab, addCursorAbove, addCursorBelow, toggleComment, indentMore, indentLess, moveLineUp, moveLineDown } from '@codemirror/commands'
 import { bracketMatching, codeFolding, foldGutter, foldKeymap, foldService, indentOnInput } from '@codemirror/language'
 import { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { searchKeymap, highlightSelectionMatches, selectNextOccurrence } from '@codemirror/search'
 import { linter, lintGutter, lintKeymap, forceLinting } from '@codemirror/lint'
 import { kolang } from '@kolang/grammar/codemirror/kolang-syntax.js'
-import { kolangCompletion, kolangTheme } from './kolang-extras.mjs'
+import { python } from '@codemirror/lang-python'
+import { json } from '@codemirror/lang-json'
+import { html } from '@codemirror/lang-html'
+import { css } from '@codemirror/lang-css'
+import { kolangCompletion, kolangHover, kolangTheme } from './kolang-extras.mjs'
 
 document.addEventListener('DOMContentLoaded', () => {
   const editorEl = document.getElementById('editor')
+  const tabBarEl = document.getElementById('tab-bar')
+  const langSelect = document.getElementById('language-select')
   const runBtn = document.getElementById('run-btn')
   const stopBtn = document.getElementById('stop-btn')
   const openBtn = document.getElementById('open-btn')
@@ -38,11 +45,15 @@ document.addEventListener('DOMContentLoaded', () => {
   const shortcutsModal = document.getElementById('shortcuts-modal')
   const shortcutsCloseBtn = document.getElementById('shortcuts-close')
 
-  let currentFilePath = null
   let isRunning = false
   let dialogBusy = false
   let explorerRoot = null
   const expandedDirs = new Map() // expanded directory path → true (cache)
+
+  // Open files (tabs). Each tab keeps its own immutable EditorState so
+  // content, selection and language survive tab switches.
+  let openFiles = []
+  let activeTab = -1
 
   // Default welcome program — valid Kolang, verb-final, Persian digits.
   const DEFAULT_DOC = `/ به ویرایشگر کلنگ خوش آمدید
@@ -59,6 +70,29 @@ document.addEventListener('DOMContentLoaded', () => {
   // Convert Latin digits to Persian digits for the line-number gutter.
   function toPersianDigits(s) {
     return String(s).replace(/[0-9]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'[+d])
+  }
+
+  function basename(p) {
+    return String(p).split(/[\\/]/).pop()
+  }
+
+  function activeFile() {
+    return openFiles[activeTab] || null
+  }
+
+  function activeFilePath() {
+    const tab = activeFile()
+    return tab ? tab.path : null
+  }
+
+  // Language by file extension; anything unknown defaults to Kolang.
+  function languageFromPath(path) {
+    const ext = String(path).split('.').pop().toLowerCase()
+    if (ext === 'py') return 'python'
+    if (ext === 'json') return 'json'
+    if (ext === 'html' || ext === 'htm') return 'html'
+    if (ext === 'css') return 'css'
+    return 'kolang'
   }
 
   // Indentation-based code folding — Kolang uses StreamLanguage (no syntax
@@ -129,78 +163,228 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }, { delay: 400 })
 
-  const view = new EditorView({
-    parent: editorEl,
-    state: EditorState.create({
-      doc: DEFAULT_DOC,
+  // Auto-pair the asymmetric Persian guillemets: « inserts «» with the
+  // cursor between; » skips over an already-typed closing mark. Kolang-only.
+  const guillemetHandler = (view, from, to, text) => {
+    if (text === '«') {
+      view.dispatch({
+        changes: { from, to, insert: '«»' },
+        selection: { anchor: from + 1 },
+      })
+      return true
+    }
+    if (text === '»') {
+      const next = view.state.doc.sliceString(to, to + 1)
+      if (next === '»') {
+        view.dispatch({ selection: { anchor: to + 1 } })
+        return true
+      }
+    }
+    return false
+  }
+
+  // Language-specific CodeMirror extensions. kolang gets completion, hover
+  // docs, indentation folding and the linter; the other languages bring
+  // their own syntax support + completions.
+  const LANG_EXTENSIONS = {
+    kolang: () => [kolang(), kolangCompletion(), kolangHover(), kolangFoldService, kolangLinter],
+    python: () => [python()],
+    json: () => [json()],
+    html: () => [html()],
+    css: () => [css()],
+  }
+
+  function buildState(doc, language, selection) {
+    const lang = Object.prototype.hasOwnProperty.call(LANG_EXTENSIONS, language) ? language : 'kolang'
+    return EditorState.create({
+      doc,
+      ...(selection ? { selection } : {}),
       extensions: [
         lineNumbers({ formatNumber: (n) => toPersianDigits(String(n)) }),
         foldGutter(),
         codeFolding(),
-        kolangFoldService,
-        kolangLinter,
         lintGutter(),
         history(),
         bracketMatching(),
         closeBrackets(),
-        // Auto-pair the asymmetric Persian guillemets: « inserts «» with the
-        // cursor between; » skips over an already-typed closing mark.
-        EditorView.inputHandler.of((view, from, to, text) => {
-          if (text === '«') {
-            view.dispatch({
-              changes: { from, to, insert: '«»' },
-              selection: { anchor: from + 1 },
-            })
-            return true
-          }
-          if (text === '»') {
-            const next = view.state.doc.sliceString(to, to + 1)
-            if (next === '»') {
-              view.dispatch({ selection: { anchor: to + 1 } })
-              return true
-            }
-          }
-          return false
-        }),
-        kolangCompletion(),
+        ...(lang === 'kolang' ? [EditorView.inputHandler.of(guillemetHandler)] : []),
+        ...LANG_EXTENSIONS[lang](),
+        ...(lang !== 'kolang' ? [autocompletion()] : []),
         highlightActiveLine(),
         highlightActiveLineGutter(),
         highlightSelectionMatches(),
         indentOnInput(),
-        keymap.of([
-          ...defaultKeymap,
-          ...historyKeymap,
-          ...searchKeymap,
-          ...completionKeymap,
-          ...closeBracketsKeymap,
-          ...foldKeymap,
-          ...lintKeymap,
-          // Multicursor: Mod-Alt+Up/Down adds a cursor above/below;
-          // Mod-d selects the next occurrence (Mod-Shift-l in searchKeymap
-          // selects all occurrences; Mod-Click adds a cursor, CM6 default).
-          { key: 'Mod-Alt-ArrowUp', run: addCursorAbove },
-          { key: 'Mod-Alt-ArrowDown', run: addCursorBelow },
-          { key: 'Mod-d', run: selectNextOccurrence },
-          indentWithTab,
-        ]),
-        kolang(),
-        ...kolangTheme(),
+        keymap.of(editorKeymap()),
         EditorView.lineWrapping,
+        ...kolangTheme(),
       ],
-    }),
+    })
+  }
+
+  function editorKeymap() {
+    return [
+      ...defaultKeymap,
+      ...historyKeymap,
+      ...searchKeymap,
+      ...completionKeymap,
+      ...closeBracketsKeymap,
+      ...foldKeymap,
+      ...lintKeymap,
+      // App-level shortcuts. Also wired at window level for when the editor
+      // isn't focused; when handled here CM6 calls preventDefault so the
+      // window handler (which bails on defaultPrevented) won't double-fire.
+      { key: 'Mod-s', run: () => { saveFile(); return true } },
+      { key: 'Mod-o', run: () => { openFile(); return true } },
+      { key: 'Mod-Enter', run: () => { runCode(); return true } },
+      { key: 'F5', run: () => { runCode(); return true } },
+      // VS Code-style editing shortcuts.
+      { key: 'Mod-/', run: toggleComment },
+      { key: 'Mod-]', run: indentMore },
+      { key: 'Mod-[', run: indentLess },
+      { key: 'Alt-ArrowUp', run: moveLineUp },
+      { key: 'Alt-ArrowDown', run: moveLineDown },
+      // Multicursor: Mod-Alt+Up/Down adds a cursor above/below;
+      // Mod-d selects the next occurrence (Mod-Shift-l in searchKeymap
+      // selects all occurrences; Mod-Click adds a cursor, CM6 default).
+      { key: 'Mod-Alt-ArrowUp', run: addCursorAbove },
+      { key: 'Mod-Alt-ArrowDown', run: addCursorBelow },
+      { key: 'Mod-d', run: selectNextOccurrence },
+      indentWithTab,
+    ]
+  }
+
+  const view = new EditorView({
+    parent: editorEl,
+    state: buildState(DEFAULT_DOC, 'kolang'),
   })
 
   // Exposed for debugging in DevTools.
   window.kolangView = view
 
-  function basename(p) {
-    return String(p).split(/[\\/]/).pop()
+  // -------------------------------------------------------------------------
+  // Tabs
+  // -------------------------------------------------------------------------
+
+  function makeUntitledTab() {
+    return {
+      path: null,
+      name: 'بدون عنوان',
+      content: DEFAULT_DOC,
+      language: 'kolang',
+      state: null,
+      scrollTop: 0,
+    }
+  }
+
+  function saveActiveState() {
+    const tab = activeFile()
+    if (!tab) return
+    tab.state = view.state
+    tab.content = view.state.doc.toString()
+    tab.scrollTop = view.scrollDOM.scrollTop
+  }
+
+  // Open (or focus) a path in a tab, with pre-read content.
+  function openPathInTab(path, content) {
+    const existing = openFiles.findIndex((t) => t.path === path)
+    if (existing >= 0) {
+      switchTab(existing)
+      return
+    }
+    const language = languageFromPath(path)
+    openFiles.push({
+      path,
+      name: basename(path),
+      content,
+      language,
+      state: buildState(content, language),
+      scrollTop: 0,
+    })
+    switchTab(openFiles.length - 1)
+  }
+
+  function switchTab(index) {
+    if (index < 0 || index >= openFiles.length || index === activeTab) return
+    saveActiveState()
+    activeTab = index
+    const tab = openFiles[index]
+    const next = tab.state || buildState(tab.content || '', tab.language)
+    view.setState(next)
+    view.scrollDOM.scrollTop = tab.scrollTop || 0
+    if (tab.language === 'kolang') forceLinting(view)
+    view.focus()
+    renderTabBar()
+    updateChrome()
+  }
+
+  function closeTab(index) {
+    if (index < 0 || index >= openFiles.length) return
+    // Closing the last tab starts over with a fresh untitled document.
+    if (openFiles.length === 1) {
+      openFiles = [makeUntitledTab()]
+      activeTab = 0
+      view.setState(openFiles[0].state || buildState(DEFAULT_DOC, 'kolang'))
+      view.scrollDOM.scrollTop = 0
+      renderTabBar()
+      updateChrome()
+      return
+    }
+    const wasActive = index === activeTab
+    openFiles.splice(index, 1)
+    if (wasActive) {
+      activeTab = Math.min(index, openFiles.length - 1)
+      const tab = openFiles[activeTab]
+      view.setState(tab.state || buildState(tab.content || '', tab.language))
+      view.scrollDOM.scrollTop = tab.scrollTop || 0
+    } else if (index < activeTab) {
+      activeTab--
+    }
+    renderTabBar()
+    updateChrome()
+  }
+
+  function renderTabBar() {
+    tabBarEl.textContent = ''
+    openFiles.forEach((tab, i) => {
+      const el = document.createElement('div')
+      el.className = 'tab' + (i === activeTab ? ' active' : '')
+      el.title = tab.path || tab.name
+      const label = document.createElement('span')
+      label.className = 'tab-label'
+      label.textContent = tab.name
+      const close = document.createElement('span')
+      close.className = 'tab-close'
+      close.textContent = '×'
+      close.addEventListener('click', (e) => {
+        e.stopPropagation()
+        closeTab(i)
+      })
+      el.appendChild(label)
+      el.appendChild(close)
+      el.addEventListener('click', () => switchTab(i))
+      tabBarEl.appendChild(el)
+    })
   }
 
   function updateTitle() {
-    const name = currentFilePath ? basename(currentFilePath) : 'بدون عنوان'
+    const tab = activeFile()
+    const name = tab && tab.path ? basename(tab.path) : 'بدون عنوان'
     document.title = `«${name} — کلنگ»`
   }
+
+  function updateChrome() {
+    const tab = activeFile()
+    langSelect.value = tab ? tab.language : 'kolang'
+    updateTitle()
+    if (!isRunning) {
+      statusEl.textContent = tab && tab.path ? basename(tab.path) : 'آماده'
+    }
+    highlightActiveFile()
+  }
+
+  // -------------------------------------------------------------------------
+  // Output / run status
+  // -------------------------------------------------------------------------
 
   function appendOutput(text, className) {
     const span = document.createElement('span')
@@ -214,7 +398,8 @@ document.addEventListener('DOMContentLoaded', () => {
     isRunning = running
     runBtn.disabled = running
     stopBtn.disabled = !running
-    statusEl.textContent = running ? 'در حال اجرا...' : (currentFilePath ? basename(currentFilePath) : 'آماده')
+    const tab = activeFile()
+    statusEl.textContent = running ? 'در حال اجرا...' : (tab && tab.path ? basename(tab.path) : 'آماده')
   }
 
   // -------------------------------------------------------------------------
@@ -254,12 +439,7 @@ document.addEventListener('DOMContentLoaded', () => {
         appendOutput('خطا در باز کردن فایل: ' + r.error + '\n', 'err')
         return
       }
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: r.content } })
-      currentFilePath = r.path
-      updateTitle()
-      statusEl.textContent = basename(r.path)
-      highlightActiveFile()
-      forceLinting(view)
+      openPathInTab(r.path, r.content)
     } finally {
       dialogBusy = false
     }
@@ -269,16 +449,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (dialogBusy) return
     dialogBusy = true
     try {
+      const tab = activeFile()
+      if (!tab) return
       const content = view.state.doc.toString()
       // If the file came from the explorer (or was previously saved), write
       // straight back to that path — no save dialog.
-      if (currentFilePath) {
-        const res = await invoke("fs_write_file", { filePath: currentFilePath, content })
+      if (tab.path) {
+        const res = await invoke("fs_write_file", { filePath: tab.path, content })
         if (res.error) {
           appendOutput('خطا در ذخیره فایل: ' + res.error + '\n', 'err')
           return
         }
-        statusEl.textContent = basename(currentFilePath)
+        statusEl.textContent = basename(tab.path)
         refreshExplorer()
         forceLinting(view)
         return
@@ -289,9 +471,9 @@ document.addEventListener('DOMContentLoaded', () => {
         appendOutput('خطا در ذخیره فایل: ' + p.error + '\n', 'err')
         return
       }
-      currentFilePath = p.path
-      updateTitle()
-      statusEl.textContent = basename(p.path)
+      tab.path = p.path
+      tab.name = basename(p.path)
+      updateChrome()
       refreshExplorer()
       forceLinting(view)
     } finally {
@@ -305,9 +487,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function highlightActiveFile() {
     explorerEl.querySelectorAll('.tree-item.active').forEach((el) => el.classList.remove('active'))
-    if (!currentFilePath) return
+    const path = activeFilePath()
+    if (!path) return
     explorerEl.querySelectorAll('.tree-item').forEach((el) => {
-      if (el.dataset.path === currentFilePath) el.classList.add('active')
+      if (el.dataset.path === path) el.classList.add('active')
     })
   }
 
@@ -318,13 +501,8 @@ document.addEventListener('DOMContentLoaded', () => {
         appendOutput('خطا در باز کردن فایل: ' + r.error + '\n', 'err')
         return
       }
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: r.content } })
-      currentFilePath = path
-      updateTitle()
-      statusEl.textContent = basename(path)
-      highlightActiveFile()
+      openPathInTab(path, r.content)
       if (item) item.classList.add('active')
-      forceLinting(view)
     } catch (err) {
       appendOutput('خطا در باز کردن فایل: ' + err.message + '\n', 'err')
     }
@@ -539,7 +717,7 @@ document.addEventListener('DOMContentLoaded', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Wiring: toolbar buttons + keyboard shortcuts
+  // Wiring: toolbar buttons, language selector, keyboard shortcuts
   // -------------------------------------------------------------------------
 
   runBtn.addEventListener('click', runCode)
@@ -547,10 +725,35 @@ document.addEventListener('DOMContentLoaded', () => {
   openBtn.addEventListener('click', openFile)
   saveBtn.addEventListener('click', saveFile)
 
-  // Window-level keyboard shortcuts. Cmd/Ctrl+Enter → run; Cmd/Ctrl+S → save;
-  // Cmd/Ctrl+O → open; Cmd/Ctrl+, → settings.
-  // (dialogBusy / isRunning guards prevent double execution.)
+  // Manual language switch for the active tab — rebuilds its state with the
+  // chosen language extensions (selection is preserved).
+  langSelect.addEventListener('change', () => {
+    const tab = activeFile()
+    if (!tab) return
+    const language = langSelect.value
+    if (language === tab.language) return
+    const doc = view.state.doc.toString()
+    const selection = view.state.selection
+    tab.content = doc
+    tab.language = language
+    tab.state = buildState(doc, language, selection)
+    tab.scrollTop = view.scrollDOM.scrollTop
+    view.setState(tab.state)
+    if (language === 'kolang') forceLinting(view)
+    view.focus()
+    updateChrome()
+  })
+
+  // Window-level keyboard shortcuts. When the editor is focused, the editor
+  // keymap handles Mod-s / Mod-o / Mod-Enter / F5 and calls preventDefault,
+  // so these don't fire again here. When focus is elsewhere, we handle them.
   window.addEventListener('keydown', (e) => {
+    if (e.defaultPrevented) return
+    if (e.key === 'F5') {
+      e.preventDefault()
+      runCode()
+      return
+    }
     const mod = e.metaKey || e.ctrlKey
     if (!mod) return
     if (e.key === 'Enter') {
@@ -568,5 +771,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   })
 
-  updateTitle()
+  // Initial state: one untitled Kolang tab.
+  openFiles = [makeUntitledTab()]
+  activeTab = 0
+  renderTabBar()
+  updateChrome()
 })

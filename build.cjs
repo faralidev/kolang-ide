@@ -11,7 +11,9 @@ const isDev = process.argv.includes('--dev');
 // @kolang/grammar is a file: symlink to a sibling repo; esbuild follows the
 // symlink and tries to resolve its bare imports (@codemirror/language,
 // @lezer/highlight) from the sibling's (nonexistent) node_modules. These
-// aliases force resolution from THIS project's node_modules.
+// aliases force resolution from THIS project's node_modules. The lang-*
+// aliases keep the language packages resolving consistently, and 'kolang-docs'
+// pulls the canonical docs JSON (from the kolang-data repo) into the bundle.
 const nm = (p) => path.resolve(__dirname, 'node_modules', p);
 
 esbuild
@@ -30,6 +32,11 @@ esbuild
     alias: {
       '@codemirror/language': nm('@codemirror/language/dist/index.js'),
       '@lezer/highlight': nm('@lezer/highlight/dist/index.js'),
+      '@codemirror/lang-python': nm('@codemirror/lang-python/dist/index.js'),
+      '@codemirror/lang-json': nm('@codemirror/lang-json/dist/index.js'),
+      '@codemirror/lang-html': nm('@codemirror/lang-html/dist/index.js'),
+      '@codemirror/lang-css': nm('@codemirror/lang-css/dist/index.js'),
+      'kolang-docs': path.resolve(__dirname, '../kolang-data/kolang-docs.json'),
     },
   })
   .then(() => {

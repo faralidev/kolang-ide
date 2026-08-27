@@ -7,10 +7,66 @@
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { tags } from '@lezer/highlight'
 import { autocompletion, snippetCompletion } from '@codemirror/autocomplete'
-import { EditorView } from '@codemirror/view'
+import { EditorView, hoverTooltip } from '@codemirror/view'
+import kolangDocs from 'kolang-docs'
+
+// Docs for hover/autocomplete. Bundled at build time from kolang-data
+// (see build.cjs alias 'kolang-docs'); also exposed globally for debugging.
+globalThis.KOLANG_DOCS = kolangDocs
 
 const COMPLETION_RE = /[\u0621-\u064A\u0670-\u06FFA-Za-z0-9_\u200C]*/
 const VALID_FOR_RE = /^[\u0621-\u064A\u0670-\u06FFA-Za-z0-9_\u200C]*$/
+const HOVER_CHAR = /[\u0621-\u064A\u0670-\u06FFA-Za-z0-9_\u200C]/
+
+// ---------------------------------------------------------------------------
+// Documentation lookup — normalized from kolang-docs.json.
+//
+// The JSON uses arrays of [name, description] pairs per section:
+// { keywords: [...], builtins: [...], verbs: [...], types: [...],
+//   modules: [...], exceptions: [...], literals: [...] }
+// ---------------------------------------------------------------------------
+
+const DOC_KIND_LABELS = {
+  keyword: 'کلیدواژه',
+  builtin: 'تابع آماده',
+  verb: 'فعل',
+  type: 'نوع',
+  module: 'ماژول',
+  exception: 'خطا',
+  literal: 'مقدار ثابت',
+}
+
+function buildDocMap(docs) {
+  const map = new Map()
+  const sections = [
+    ['keywords', 'keyword'],
+    ['builtins', 'builtin'],
+    ['verbs', 'verb'],
+    ['types', 'type'],
+    ['modules', 'module'],
+    ['exceptions', 'exception'],
+    ['literals', 'literal'],
+  ]
+  for (const [key, kind] of sections) {
+    const entries = docs && docs[key]
+    if (!Array.isArray(entries)) continue
+    for (const entry of entries) {
+      if (Array.isArray(entry) && entry.length >= 2) {
+        map.set(entry[0], { kind, desc: entry[1] })
+      }
+    }
+  }
+  return map
+}
+
+const DOC_MAP = buildDocMap(kolangDocs)
+
+/// شرح مستندات برای یک نام (برای تکمیل خودکار). اگر در docs نبود،
+/// شرح کوتاه پیش‌فرض به کار می‌رود.
+function docDetail(name, fallback) {
+  const entry = DOC_MAP.get(name)
+  return entry ? entry.desc : fallback
+}
 
 const kolangEditorTheme = EditorView.theme({
   '&': {
@@ -85,7 +141,8 @@ const kolangEditorTheme = EditorView.theme({
       fontWeight: '500',
       fontFamily: "'Vazirmatn', monospace",
     },
-    // Detail (the Persian description) — muted, separated, with a leading dot
+    // Detail (the Persian description) — muted, separated, truncated so long
+    // doc descriptions don't blow up the popup width.
     '& .cm-completionDetail': {
       color: '#7f849c',
       fontSize: '12px',
@@ -93,6 +150,10 @@ const kolangEditorTheme = EditorView.theme({
       paddingRight: '6px',
       borderRight: '1px solid #45475a', // visual separator
       marginRight: '2px',
+      maxWidth: '24em',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap',
     },
     // Completion icon
     '& .cm-completionIcon': {
@@ -136,6 +197,26 @@ const kolangEditorTheme = EditorView.theme({
   '.cm-diagnostic-error': { color: '#ff5c5c' },
   '.cm-diagnostic-warning': { color: '#ffb300' },
   '.cm-diagnostic-info': { color: '#66b8ff' },
+  // Hover documentation tooltip
+  '.cm-kolang-hover': {
+    direction: 'rtl',
+    textAlign: 'right',
+    maxWidth: '32em',
+    padding: '6px 12px',
+    fontSize: '12px',
+    lineHeight: '1.7',
+    fontFamily: "'Vazirmatn', monospace",
+  },
+  '.cm-kolang-hover-kind': {
+    color: '#cba6f7',
+    fontWeight: 'bold',
+    fontSize: '11px',
+    marginBottom: '2px',
+  },
+  '.cm-kolang-hover-desc': {
+    color: '#cdd6f4',
+    whiteSpace: 'pre-wrap',
+  },
   '.cm-activeLine': { backgroundColor: '#31324440' },
   '.cm-activeLineGutter': { backgroundColor: '#313244', color: '#cdd6f4' },
   '.cm-foldGutter .cm-gutterElement': { color: '#7f849c', cursor: 'pointer' },
@@ -369,12 +450,12 @@ function kolangCompletionSource(context) {
 
   const prefix = word.text
   let options = []
-  for (const [label, detail] of KEYWORD_COMPLETIONS) options.push({ label, type: 'keyword', detail })
-  for (const [label, detail] of FUNCTION_COMPLETIONS) options.push({ label, type: 'function', detail })
-  for (const [label, detail] of TYPE_COMPLETIONS) options.push({ label, type: 'type', detail })
-  for (const [label, detail] of MODULE_COMPLETIONS) options.push({ label, type: 'namespace', detail })
-  for (const [label, detail] of EXCEPTION_COMPLETIONS) options.push({ label, type: 'class', detail })
-  for (const [label, detail] of LITERAL_COMPLETIONS) options.push({ label, type: 'variable', detail })
+  for (const [label, detail] of KEYWORD_COMPLETIONS) options.push({ label, type: 'keyword', detail: docDetail(label, detail) })
+  for (const [label, detail] of FUNCTION_COMPLETIONS) options.push({ label, type: 'function', detail: docDetail(label, detail) })
+  for (const [label, detail] of TYPE_COMPLETIONS) options.push({ label, type: 'type', detail: docDetail(label, detail) })
+  for (const [label, detail] of MODULE_COMPLETIONS) options.push({ label, type: 'namespace', detail: docDetail(label, detail) })
+  for (const [label, detail] of EXCEPTION_COMPLETIONS) options.push({ label, type: 'class', detail: docDetail(label, detail) })
+  for (const [label, detail] of LITERAL_COMPLETIONS) options.push({ label, type: 'variable', detail: docDetail(label, detail) })
   options.push(...SNIPPETS)
 
   // User-defined identifiers from the current document. boost 5 keeps them
@@ -527,4 +608,48 @@ function kolangCompletion() {
   })
 }
 
-export { kolangTheme, kolangCompletion }
+// ---------------------------------------------------------------------------
+// Hover documentation.
+//
+// Looks up the word under the mouse in the docs and shows a tooltip with the
+// Persian description. Only shows when the pointer is over an actual word.
+// ---------------------------------------------------------------------------
+
+function kolangHoverSource(view, pos, side) {
+  const { from, to, text } = view.state.doc.lineAt(pos)
+  let start = pos
+  let end = pos
+  while (start > from && HOVER_CHAR.test(text[start - from - 1])) start--
+  while (end < to && HOVER_CHAR.test(text[end - from])) end++
+  if (start === pos && end === pos) return null // pointer not over a word
+  const word = text.slice(start - from, end - from)
+  const entry = DOC_MAP.get(word)
+  if (!entry) return null
+  const kindLabel = DOC_KIND_LABELS[entry.kind]
+  return {
+    pos: start,
+    end,
+    above: true,
+    create() {
+      const dom = document.createElement('div')
+      dom.className = 'cm-kolang-hover'
+      if (kindLabel) {
+        const kind = document.createElement('div')
+        kind.className = 'cm-kolang-hover-kind'
+        kind.textContent = kindLabel
+        dom.appendChild(kind)
+      }
+      const desc = document.createElement('div')
+      desc.className = 'cm-kolang-hover-desc'
+      desc.textContent = entry.desc
+      dom.appendChild(desc)
+      return { dom }
+    },
+  }
+}
+
+function kolangHover() {
+  return hoverTooltip(kolangHoverSource)
+}
+
+export { kolangTheme, kolangCompletion, kolangHover }
