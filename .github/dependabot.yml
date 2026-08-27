@@ -1,12 +1,13 @@
 version: 2
 updates:
-  # Bump @kolang/grammar when kolang-grammar publishes to npm
+  # Bump @kolang/* and @codemirror/* npm deps when they publish to npm
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
     allow:
-      - dependency-name: "@kolang/grammar"
+      - dependency-name: "@kolang/*"
+      - dependency-name: "@codemirror/*"
       - dependency-name: "@tauri-apps/api"
       - dependency-name: "@tauri-apps/cli"
     commit-message:
