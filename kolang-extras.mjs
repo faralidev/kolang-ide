@@ -10,6 +10,7 @@ import { autocompletion, snippetCompletion } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 
 const COMPLETION_RE = /[\u0621-\u064A\u0670-\u06FFA-Za-z0-9_\u200C]*/
+const VALID_FOR_RE = /^[\u0621-\u064A\u0670-\u06FFA-Za-z0-9_\u200C]*$/
 
 const kolangEditorTheme = EditorView.theme({
   '&': {

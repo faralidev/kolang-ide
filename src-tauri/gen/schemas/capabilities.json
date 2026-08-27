@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"Capabilities for the main kolang-ide window — dialog permissions for file open/save. The app uses Rust std::fs for file I/O (not the fs plugin) and std::process::Command for running the kolang binary (not the shell plugin), so only dialog permissions are needed.","local":true,"windows":["main"],"permissions":["core:default","dialog:default","core:window:default","core:app:default","core:path:default","core:event:default"]}}

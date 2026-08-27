@@ -10,11 +10,14 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::process::Stdio;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_dialog::DialogExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::process::{Child, Command};
+use tokio::sync::Mutex as AsyncMutex;
 
 // ---------------------------------------------------------------------------
 // انواع داده‌های مشترک
@@ -75,6 +78,21 @@ struct DirEntry {
 #[derive(Serialize)]
 struct ListDirResult {
     entries: Vec<DirEntry>,
+    error: Option<String>,
+}
+
+/// نتیجهٔ خواندن فایل.
+#[derive(Serialize)]
+struct FsReadResult {
+    content: Option<String>,
+    error: Option<String>,
+}
+
+/// نتیجهٔ نوشتن فایل.
+#[derive(Serialize)]
+struct FsWriteResult {
+    ok: bool,
+    error: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -95,7 +113,7 @@ struct SaveFileResult {
 // ---------------------------------------------------------------------------
 
 struct AppState {
-    running_child: Mutex<Option<Child>>,
+    running_child: Arc<AsyncMutex<Option<Child>>>,
     settings: Mutex<Settings>,
 }
 
@@ -192,40 +210,49 @@ fn save_settings(app: &AppHandle, settings: &Settings) {
 // ---------------------------------------------------------------------------
 
 /// اجرای کد کلنگ با مفسر (نوشتن در فایل موقت + spawn).
+///
+/// Asynchronous تا UI فریز نشود: خروجی stdout/stderr به‌صورت هم‌زمان خوانده
+/// می‌شود و اگر اجرا بیش از ۱۰ ثانیه طول بکشد، زیرپروسه متوقف می‌شود.
 #[tauri::command]
-fn kolang_run(
+async fn kolang_run(
     app: AppHandle,
-    state: State<AppState>,
+    state: State<'_, AppState>,
     code: String,
-) -> RunResult {
+) -> Result<RunResult, String> {
     let settings = state.settings.lock().unwrap().clone();
     let kolang_bin = current_kolang_path(&app, &settings);
 
     // نوشتن کد در فایل موقت
     let temp_dir = std::env::temp_dir();
-    let temp_file = temp_dir.join(format!("kolang-ide-{}.kolang", chrono_timestamp()));
+    let temp_file = temp_dir.join(format!("kolang-ide-{}.kolang", system_timestamp()));
     if let Err(e) = fs::write(&temp_file, &code) {
-        return RunResult {
+        return Ok(RunResult {
             stdout: String::new(),
             stderr: format!("Failed to write temp file: {}", e),
             exit_code: -1,
             duration_ms: 0.0,
-        };
+        });
     }
 
-    // بررسی وجود و قابل‌اجرا بودن باینری
-    let bin_path = PathBuf::from(&kolang_bin);
-    if !bin_path.exists() && kolang_bin != "kolang" && kolang_bin != "kolang.exe" {
+    // بررسی وجود باینری. اگر نام پیش‌فرض ("kolang") تنظیم شده و روی PATH
+    // نیست، پیام فارسی دوستانه برگردانده می‌شود.
+    let is_default_name = kolang_bin == "kolang" || kolang_bin == "kolang.exe";
+    if !PathBuf::from(&kolang_bin).exists() {
         let _ = fs::remove_file(&temp_file);
-        return RunResult {
+        return Ok(RunResult {
             stdout: String::new(),
-            stderr: format!(
-                "«مسیر مفسر کلنگ پیدا نشد: {} — لطفاً در تنظیمات مسیر را تنظیم کنید»",
-                kolang_bin
-            ),
+            stderr: if is_default_name {
+                "«مفسر کلنگ روی PATH پیدا نشد — لطفاً در تنظیمات مسیر مفسر را تنظیم کنید»"
+                    .to_string()
+            } else {
+                format!(
+                    "«مسیر مفسر کلنگ پیدا نشد: {} — لطفاً در تنظیمات مسیر را تنظیم کنید»",
+                    kolang_bin
+                )
+            },
             exit_code: -1,
             duration_ms: 0.0,
-        };
+        });
     }
 
     let started = Instant::now();
@@ -240,101 +267,132 @@ fn kolang_run(
         Ok(c) => c,
         Err(e) => {
             let _ = fs::remove_file(&temp_file);
-            return RunResult {
+            return Ok(RunResult {
                 stdout: String::new(),
                 stderr: format!("Failed to start kolang: {}", e),
                 exit_code: -1,
                 duration_ms: 0.0,
-            };
+            });
         }
     };
 
-    // ثبت زیرپروسه برای دکمهٔ توقف
+    // جدا کردن stdout/stderr و ثبت زیرپروسه در state تا دکمهٔ توقف بتواند
+    // در هر لحظه آن را بکشد. زیرپروسه تا پایان اجرا داخل state می‌ماند.
+    let stdout_pipe = child.stdout.take();
+    let stderr_pipe = child.stderr.take();
     {
-        let mut running = state.running_child.lock().unwrap();
+        let mut running = state.running_child.lock().await;
         *running = Some(child);
     }
 
-    // Timeout: 10 ثانیه
-    let timeout = Duration::from_millis(10_000);
-    let start = Instant::now();
-
-    // خواندن stdout + stderr با timeout
-    let mut stdout = String::new();
-    let mut stderr = String::new();
-    let mut exit_code = -1;
-    let mut timed_out = false;
-
-    // گرفتن child برای مدیریت
-    let mut child_opt = {
-        let mut running = state.running_child.lock().unwrap();
-        running.take()
+    // خواندن هم‌زمان stdout و stderr — هرگز ترتیبی (ریسک deadlock روی pipe).
+    let read_stdout = async {
+        let mut out = String::new();
+        if let Some(mut pipe) = stdout_pipe {
+            let _ = pipe.read_to_string(&mut out).await;
+        }
+        out
+    };
+    let read_stderr = async {
+        let mut err = String::new();
+        if let Some(mut pipe) = stderr_pipe {
+            let _ = pipe.read_to_string(&mut err).await;
+        }
+        err
     };
 
-    if let Some(ref mut child) = child_opt {
-        // خواندن stdout
-        if let Some(mut out) = child.stdout.take() {
-            use std::io::Read;
-            let _ = out.read_to_string(&mut stdout);
-        }
-        if let Some(mut err) = child.stderr.take() {
-            use std::io::Read;
-            let _ = err.read_to_string(&mut stderr);
-        }
-
-        // انتظار برای پایان با timeout
+    // انتظار برای پایان زیرپروسه با timeout (۱۰ ثانیه). زیرپروسه داخل state
+    // باقی می‌ماند تا kolang_kill بتواند هر لحظه آن را متوقف کند. با timeout
+    // زیرپروسه کشته شده و zombie آن جمع‌آوری می‌شود.
+    let wait_for_exit = async {
+        let mut exit_code = -1;
+        let mut timed_out = false;
+        let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            match child.try_wait() {
-                Ok(Some(status)) => {
-                    exit_code = status.code().unwrap_or(-1);
-                    break;
+            let exited = {
+                let mut running = state.running_child.lock().await;
+                match running.as_mut() {
+                    Some(child) => match child.try_wait() {
+                        Ok(Some(status)) => {
+                            exit_code = status.code().unwrap_or(-1);
+                            true
+                        }
+                        Ok(None) => false,
+                        Err(_) => true,
+                    },
+                    None => true, // kolang_kill زیرپروسه را حذف کرده
                 }
-                Ok(None) => {
-                    if start.elapsed() > timeout {
-                        timed_out = true;
-                        let _ = child.kill();
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
-                }
-                Err(_) => break,
+            };
+            if exited {
+                break;
             }
+            if Instant::now() > deadline {
+                timed_out = true;
+                let mut running = state.running_child.lock().await;
+                if let Some(mut child) = running.take() {
+                    let _ = child.kill().await;
+                    let _ = child.wait().await; // جمع‌آوری zombie
+                }
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        (exit_code, timed_out)
+    };
+
+    let (stdout, stderr, (exit_code, timed_out)) = tokio::join!(
+        read_stdout,
+        read_stderr,
+        wait_for_exit,
+    );
+
+    // حذف زیرپروسه از state پس از پایان اجرا.
+    {
+        let mut running = state.running_child.lock().await;
+        if let Some(mut child) = running.take() {
+            let _ = child.wait().await;
         }
     }
 
     let duration_ms = started.elapsed().as_millis() as f64;
 
-    if timed_out {
-        stderr = format!(
+    let stderr = if timed_out {
+        format!(
             "{}\n[kolang-ide] اجرا بیش از ۱۰ ثانیه طول کشید و متوقف شد.",
             stderr
-        );
-    }
+        )
+    } else {
+        stderr
+    };
 
     let _ = fs::remove_file(&temp_file);
 
-    RunResult {
+    Ok(RunResult {
         stdout,
         stderr,
         exit_code,
         duration_ms,
-    }
+    })
 }
 
 /// توقف برنامهٔ در حال اجرا.
 #[tauri::command]
-fn kolang_kill(state: State<AppState>) -> bool {
-    let mut running = state.running_child.lock().unwrap();
+async fn kolang_kill(state: State<'_, AppState>) -> Result<bool, String> {
+    let mut running = state.running_child.lock().await;
     if let Some(mut child) = running.take() {
-        let _ = child.kill();
-        return true;
+        let _ = child.kill().await;
+        let _ = child.wait().await; // جمع‌آوری zombie
+        return Ok(true);
     }
-    false
+    Ok(false)
 }
 
 /// اجرای لینتر روی کد (stdin → JSON diagnostics).
+///
+/// Asynchronous: کد از طریق stdin ارسال می‌شود، stdout هم‌زمان با انتظار
+/// برای پایان خوانده می‌شود و اگر بیش از ۵ ثانیه طول بکشد، لینتر متوقف می‌شود.
 #[tauri::command]
-fn linter_run(app: AppHandle, state: State<AppState>, code: String) -> Vec<Diagnostic> {
+async fn linter_run(app: AppHandle, state: State<'_, AppState>, code: String) -> Result<Vec<Diagnostic>, String> {
     let settings = state.settings.lock().unwrap().clone();
     let linter_bin = current_linter_path(&app, &settings);
 
@@ -345,36 +403,38 @@ fn linter_run(app: AppHandle, state: State<AppState>, code: String) -> Vec<Diagn
         .spawn()
     {
         Ok(c) => c,
-        Err(_) => return vec![],
+        Err(_) => return Ok(vec![]),
     };
 
-    use std::io::Write;
+    // ارسال کد از طریق stdin و بستن آن (EOF) تا لینتر پایان ورودی را بفهمد
     if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(code.as_bytes());
+        let _ = stdin.write_all(code.as_bytes()).await;
+        drop(stdin);
     }
 
-    // Timeout: 5 ثانیه
-    let start = Instant::now();
-    let timeout = Duration::from_millis(5_000);
-
-    let mut output = String::new();
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) => {
-                if start.elapsed() > timeout {
-                    let _ = child.kill();
-                    return vec![];
-                }
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            Err(_) => return vec![],
+    // خواندن stdout به‌صورت هم‌زمان با انتظار برای پایان (timeout: ۵ ثانیه)
+    let stdout_pipe = child.stdout.take();
+    let read_stdout = async {
+        let mut output = String::new();
+        if let Some(mut pipe) = stdout_pipe {
+            let _ = pipe.read_to_string(&mut output).await;
         }
-    }
+        output
+    };
 
-    if let Some(mut out) = child.stdout.take() {
-        use std::io::Read;
-        let _ = out.read_to_string(&mut output);
+    let (output, timed_out) = tokio::join!(
+        read_stdout,
+        async {
+            tokio::time::timeout(Duration::from_secs(5), child.wait())
+                .await
+                .is_err()
+        },
+    );
+
+    if timed_out {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+        return Ok(vec![]);
     }
 
     // تجزیهٔ JSON: { "diagnostics": [...] }
@@ -383,7 +443,7 @@ fn linter_run(app: AppHandle, state: State<AppState>, code: String) -> Vec<Diagn
         diagnostics: Option<Vec<Diagnostic>>,
     }
     let parsed: Result<LinterOutput, _> = serde_json::from_str(&output);
-    parsed.map(|p| p.diagnostics.unwrap_or_default()).unwrap_or_default()
+    Ok(parsed.map(|p| p.diagnostics.unwrap_or_default()).unwrap_or_default())
 }
 
 /// دیالوگ باز کردن فایل .kolang.
@@ -465,9 +525,15 @@ fn fs_list_dir(dir_path: String) -> ListDirResult {
                 }
                 a.name.cmp(&b.name)
             });
-            ListDirResult { entries: items }
+            ListDirResult {
+                entries: items,
+                error: None,
+            }
         }
-        Err(e) => ListDirResult { entries: vec![] },
+        Err(e) => ListDirResult {
+            entries: vec![],
+            error: Some(e.to_string()),
+        },
     }
 }
 
@@ -484,26 +550,38 @@ fn fs_open_folder(app: AppHandle) -> Option<String> {
 
 /// خواندن فایل از مسیر.
 #[tauri::command]
-fn fs_read_file(file_path: String) -> Result<String, String> {
-    fs::read_to_string(&file_path).map_err(|e| e.to_string())
+fn fs_read_file(file_path: String) -> FsReadResult {
+    match fs::read_to_string(&file_path) {
+        Ok(content) => FsReadResult {
+            content: Some(content),
+            error: None,
+        },
+        Err(e) => FsReadResult {
+            content: None,
+            error: Some(e.to_string()),
+        },
+    }
 }
 
 /// نوشتن فایل در مسیر.
 #[tauri::command]
-fn fs_write_file(file_path: String, content: String) -> Result<(), String> {
-    fs::write(&file_path, &content).map_err(|e| e.to_string())
+fn fs_write_file(file_path: String, content: String) -> FsWriteResult {
+    match fs::write(&file_path, &content) {
+        Ok(_) => FsWriteResult {
+            ok: true,
+            error: None,
+        },
+        Err(e) => FsWriteResult {
+            ok: false,
+            error: Some(e.to_string()),
+        },
+    }
 }
 
 /// خواندن تنظیمات ذخیره‌شده.
 #[tauri::command]
-fn settings_get(app: AppHandle, state: State<AppState>) -> Settings {
-    let s = state.settings.lock().unwrap().clone();
-    // اگر تنظیمات خالی است، از فایل بارگذاری کن
-    if s.kolang_path.is_empty() {
-        load_settings(&app)
-    } else {
-        s
-    }
+fn settings_get(_app: AppHandle, state: State<AppState>) -> Settings {
+    state.settings.lock().unwrap().clone()
 }
 
 /// ذخیرهٔ تنظیمات.
@@ -553,7 +631,7 @@ fn settings_pick_linter_path(app: AppHandle) -> Option<String> {
 // ابزار
 // ---------------------------------------------------------------------------
 
-fn chrono_timestamp() -> u128 {
+fn system_timestamp() -> u128 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -571,7 +649,7 @@ fn main() {
         .setup(|app| {
             let settings = load_settings(app.handle());
             app.manage(AppState {
-                running_child: Mutex::new(None),
+                running_child: Arc::new(AsyncMutex::new(None)),
                 settings: Mutex::new(settings),
             });
             Ok(())

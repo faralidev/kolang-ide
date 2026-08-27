@@ -4,6 +4,7 @@
 'use strict';
 
 const esbuild = require('esbuild');
+const fs = require('fs');
 const path = require('path');
 const isDev = process.argv.includes('--dev');
 
@@ -31,7 +32,38 @@ esbuild
       '@lezer/highlight': nm('@lezer/highlight/dist/index.js'),
     },
   })
-  .then(() => console.log('dist/bundle.js built'))
+  .then(() => {
+    console.log('dist/bundle.js built');
+    // Copy index.html into dist/ so the dev server can serve it.
+    // Rewrite the bundle.js path: index.html references ./dist/bundle.js
+    // (correct for production where frontendDist=../dist serves the parent),
+    // but in dev the server serves FROM dist/ so it must be ./bundle.js.
+    let html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+    html = html.replace('./dist/bundle.js', './bundle.js');
+    fs.writeFileSync(path.join(__dirname, 'dist', 'index.html'), html);
+    // In dev mode, start a static server on :8080 serving dist/ so Tauri's
+    // devUrl can load the frontend. In build mode, just exit.
+    if (isDev) {
+      const http = require('http');
+      const fs = require('fs');
+      const server = http.createServer((req, res) => {
+        let urlPath = req.url === '/' ? '/index.html' : req.url;
+        const filePath = path.join(__dirname, 'dist', urlPath);
+        fs.readFile(filePath, (err, data) => {
+          if (err) {
+            res.writeHead(404);
+            res.end('not found');
+            return;
+          }
+          const ext = path.extname(filePath);
+          const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
+          res.writeHead(200, { 'Content-Type': types[ext] || 'application/octet-stream' });
+          res.end(data);
+        });
+      });
+      server.listen(8080, () => console.log('dev server on http://localhost:8080'));
+    }
+  })
   .catch((e) => {
     console.error(e);
     process.exit(1);

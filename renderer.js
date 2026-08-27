@@ -2,11 +2,10 @@
 //
 // Bundled by esbuild into bundle.js (classic script loaded by index.html);
 // this file is never loaded directly by the page. Mounts the CodeMirror 6
-// editor with the kolang language module, wires toolbar buttons + menu events
-// to the Tauri backend (invoke API), and renders program output.
+// editor with the kolang language module, wires toolbar buttons + keyboard
+// shortcuts to the Tauri backend (invoke API), and renders program output.
 
 import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
 import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from '@codemirror/view'
 import { EditorState } from '@codemirror/state'
 import { defaultKeymap, history, historyKeymap, indentWithTab, addCursorAbove, addCursorBelow } from '@codemirror/commands'
@@ -275,7 +274,7 @@ document.addEventListener('DOMContentLoaded', () => {
       // straight back to that path — no save dialog.
       if (currentFilePath) {
         const res = await invoke("fs_write_file", { filePath: currentFilePath, content })
-        if (res && res.error) {
+        if (res.error) {
           appendOutput('خطا در ذخیره فایل: ' + res.error + '\n', 'err')
           return
         }
@@ -315,11 +314,11 @@ document.addEventListener('DOMContentLoaded', () => {
   async function openFileFromExplorer(path, item) {
     try {
       const r = await invoke("fs_read_file", { filePath: path })
-      if (r && r.error) {
+      if (r.error) {
         appendOutput('خطا در باز کردن فایل: ' + r.error + '\n', 'err')
         return
       }
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: r } })
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: r.content } })
       currentFilePath = path
       updateTitle()
       statusEl.textContent = basename(path)
@@ -379,7 +378,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!childrenEl.dataset.loaded) {
       try {
         const res = await invoke("fs_list_dir", { dirPath: wrapper.dataset.path })
-        if (res && res.error) {
+        if (res.error) {
           appendOutput('خطا در خواندن پوشه: ' + res.error + '\n', 'err')
           return
         }
@@ -401,7 +400,7 @@ document.addEventListener('DOMContentLoaded', () => {
     container.textContent = ''
     try {
       const res = await invoke("fs_list_dir", { dirPath: dirPath })
-      if (res && res.error) {
+      if (res.error) {
         const msg = document.createElement('div')
         msg.className = 'muted'
         msg.textContent = 'خطا: ' + res.error
@@ -540,7 +539,7 @@ document.addEventListener('DOMContentLoaded', () => {
   })
 
   // -------------------------------------------------------------------------
-  // Wiring: toolbar buttons, menu events, keyboard shortcuts
+  // Wiring: toolbar buttons + keyboard shortcuts
   // -------------------------------------------------------------------------
 
   runBtn.addEventListener('click', runCode)
@@ -548,16 +547,9 @@ document.addEventListener('DOMContentLoaded', () => {
   openBtn.addEventListener('click', openFile)
   saveBtn.addEventListener('click', saveFile)
 
-  // رویدادهای منو از Tauri (به‌جای IPC الکترون)
-  listen('menu:run', () => runCode())
-  listen('menu:stop', () => stopCode())
-  listen('menu:open', () => openFile())
-  listen('menu:save', () => saveFile())
-  listen('menu:settings', () => showSettingsModal())
-
   // Window-level keyboard shortcuts. Cmd/Ctrl+Enter → run; Cmd/Ctrl+S → save;
-  // Cmd/Ctrl+O → open; Cmd/Ctrl+, → settings. (Menu accelerators also fire
-  // these — dialogBusy / isRunning guards prevent double execution.)
+  // Cmd/Ctrl+O → open; Cmd/Ctrl+, → settings.
+  // (dialogBusy / isRunning guards prevent double execution.)
   window.addEventListener('keydown', (e) => {
     const mod = e.metaKey || e.ctrlKey
     if (!mod) return
