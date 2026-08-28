@@ -1,6 +1,6 @@
 [package]
 name = "kolang-ide"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "ویرایشگر دسکتاپ کلنگ — Tauri + CodeMirror"
 authors = ["FaraliDev and contributors"]
