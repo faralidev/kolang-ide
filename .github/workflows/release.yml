@@ -24,11 +24,18 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: faralidev/kolang-grammar
-          path: ../kolang-grammar
+          path: kolang-grammar
       - uses: actions/checkout@v5
         with:
           repository: faralidev/kolang-wasm
-          path: ../kolang-wasm
+          path: kolang-wasm
+      - name: "Place sibling repos where file: deps expect them"
+        run: |
+          # package.json uses file:../kolang-grammar and file:../kolang-wasm (sibling
+          # repos). actions/checkout can't write outside the workspace, so check them
+          # out into subdirs and symlink them one level up so the file: paths resolve.
+          ln -s "$GITHUB_WORKSPACE/kolang-grammar" "$GITHUB_WORKSPACE/../kolang-grammar"
+          ln -s "$GITHUB_WORKSPACE/kolang-wasm" "$GITHUB_WORKSPACE/../kolang-wasm"
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
