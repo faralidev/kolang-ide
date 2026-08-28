@@ -19,20 +19,20 @@ jobs:
             args: ''
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # Check out sibling repos so the @kolang/* file: deps resolve.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           repository: faralidev/kolang-grammar
           path: ../kolang-grammar
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           repository: faralidev/kolang-wasm
           path: ../kolang-wasm
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: 20
+          node-version: '24'
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -93,7 +93,7 @@ jobs:
 
       # ── Homebrew cask (macOS dmg) ──────────────────────────────────────
       - name: Checkout homebrew-tap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: faralidev/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
@@ -151,7 +151,7 @@ jobs:
 
       # ── Scoop manifest (Windows exe) ───────────────────────────────────
       - name: Checkout scoop-bucket
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: faralidev/scoop-bucket
           token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
