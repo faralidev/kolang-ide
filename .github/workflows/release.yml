@@ -40,11 +40,11 @@ jobs:
           # repos); build.cjs resolves ../kolang-data/kolang-docs.json. actions/checkout
           # can't write outside the workspace, so check them out into subdirs and link
           # them one level up so the file: paths resolve.
-          # On Windows, ln -s doesn't work in Git Bash — use cmd //c mklink /J (junction).
+          # On Windows, ln -s doesn't work in Git Bash — use PowerShell junctions.
           if [ "$RUNNER_OS" = "Windows" ]; then
-            cmd //c mklink /J "$GITHUB_WORKSPACE\\..\\kolang-grammar" "$GITHUB_WORKSPACE\\kolang-grammar"
-            cmd //c mklink /J "$GITHUB_WORKSPACE\\..\\kolang-wasm" "$GITHUB_WORKSPACE\\kolang-wasm"
-            cmd //c mklink /J "$GITHUB_WORKSPACE\\..\\kolang-data" "$GITHUB_WORKSPACE\\kolang-data"
+            for repo in kolang-grammar kolang-wasm kolang-data; do
+              powershell -NoProfile -Command "New-Item -ItemType Junction -Path \"\$env:GITHUB_WORKSPACE\\..\\$repo\" -Target \"\$env:GITHUB_WORKSPACE\\$repo\""
+            done
           else
             ln -s "$GITHUB_WORKSPACE/kolang-grammar" "$GITHUB_WORKSPACE/../kolang-grammar"
             ln -s "$GITHUB_WORKSPACE/kolang-wasm" "$GITHUB_WORKSPACE/../kolang-wasm"
