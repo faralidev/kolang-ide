@@ -89,6 +89,7 @@ jobs:
           VERSION="${{ github.ref_name }}"
           HB_VERSION="${VERSION#v}"
           mkdir -p /tmp/assets
+          declare -A HASHES
           # kolang-ide publishes:
           #   kolang-ide-{version}-universal.dmg        (macOS — Homebrew cask)
           #   kolang-ide.Setup.{version}.exe            (Windows — Scoop manifest)
