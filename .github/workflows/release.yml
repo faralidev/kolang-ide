@@ -12,9 +12,7 @@ jobs:
       matrix:
         include:
           - platform: macos-latest
-            args: '--target aarch64-apple-darwin'
-          - platform: macos-latest
-            args: '--target x86_64-apple-darwin'
+            args: '--target universal-apple-darwin'
           - platform: windows-latest
             args: ''
     runs-on: ${{ matrix.platform }}
@@ -90,12 +88,12 @@ jobs:
           HB_VERSION="${VERSION#v}"
           mkdir -p /tmp/assets
           declare -A HASHES
-          # kolang-ide publishes:
-          #   kolang-ide-{version}-universal.dmg        (macOS — Homebrew cask)
-          #   kolang-ide.Setup.{version}.exe            (Windows — Scoop manifest)
+          # kolang-ide publishes (Tauri naming):
+          #   kolang-ide_{version}_universal.dmg        (macOS — Homebrew cask)
+          #   kolang-ide_{version}_x64-setup.exe        (Windows — Scoop manifest)
           for asset in \
-            "kolang-ide-${HB_VERSION}-universal.dmg" \
-            "kolang-ide.Setup.${HB_VERSION}.exe"; do
+            "kolang-ide_${HB_VERSION}_universal.dmg" \
+            "kolang-ide_${HB_VERSION}_x64-setup.exe"; do
             for attempt in 1 2 3 4 5; do
               if curl -fsSL -o "/tmp/assets/$asset" "https://github.com/faralidev/kolang-ide/releases/download/${VERSION}/$asset"; then
                 break
@@ -109,8 +107,8 @@ jobs:
           {
             echo "version=${VERSION}"
             echo "hb_version=${HB_VERSION}"
-            echo "dmg_hash=${HASHES[kolang-ide-${HB_VERSION}-universal.dmg]}"
-            echo "exe_hash=${HASHES[kolang-ide.Setup.${HB_VERSION}.exe]}"
+            echo "dmg_hash=${HASHES[kolang-ide_${HB_VERSION}_universal.dmg]}"
+            echo "exe_hash=${HASHES[kolang-ide_${HB_VERSION}_x64-setup.exe]}"
           } >> "$GITHUB_OUTPUT"
 
       # ── Homebrew cask (macOS dmg) ──────────────────────────────────────
