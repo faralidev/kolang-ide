@@ -8,12 +8,12 @@ const fs = require('fs');
 const path = require('path');
 const isDev = process.argv.includes('--dev');
 
-// @kolang/grammar is a file: symlink to a sibling repo; esbuild follows the
-// symlink and tries to resolve its bare imports (@codemirror/language,
-// @lezer/highlight) from the sibling's (nonexistent) node_modules. These
-// aliases force resolution from THIS project's node_modules. The lang-*
-// aliases keep the language packages resolving consistently, and 'kolang-docs'
-// pulls the canonical docs JSON (from the kolang-data repo) into the bundle.
+// @kolang/grammar (npm ^0.1.2) declares no @codemirror/@lezer deps (peer-dep
+// pattern), so its bare imports must resolve from THIS project's node_modules.
+// These aliases pin @codemirror/* and @lezer/highlight to our copies regardless
+// of where esbuild resolves @kolang/grammar from. The lang-* aliases keep the
+// language packages resolving consistently, and 'kolang-docs' pulls the
+// canonical docs JSON (from the kolang-data repo) into the bundle.
 const nm = (p) => path.resolve(__dirname, 'node_modules', p);
 
 esbuild

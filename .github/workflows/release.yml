@@ -18,11 +18,9 @@ jobs:
     runs-on: ${{ matrix.platform }}
     steps:
       - uses: actions/checkout@v5
-      # Check out sibling repos so the @kolang/* file: deps resolve.
-      - uses: actions/checkout@v5
-        with:
-          repository: faralidev/kolang-grammar
-          path: kolang-grammar
+      # Check out sibling repos. @kolang/grammar now comes from npm (^0.1.2),
+      # so no grammar sibling is needed. build.cjs resolves ../kolang-data/
+      # kolang-docs.json; the kolang-wasm sibling is kept for legacy reasons.
       - uses: actions/checkout@v5
         with:
           repository: faralidev/kolang-wasm
@@ -31,20 +29,19 @@ jobs:
         with:
           repository: faralidev/kolang-data
           path: kolang-data
-      - name: "Place sibling repos where file: deps expect them"
+      - name: "Place sibling repos where the build expects them"
         shell: bash
         run: |
-          # package.json uses file:../kolang-grammar and file:../kolang-wasm (sibling
-          # repos); build.cjs resolves ../kolang-data/kolang-docs.json. actions/checkout
-          # can't write outside the workspace, so check them out into subdirs and link
-          # them one level up so the file: paths resolve.
+          # build.cjs resolves ../kolang-data/kolang-docs.json; the kolang-wasm
+          # sibling is kept for legacy reasons. actions/checkout can't write
+          # outside the workspace, so check them out into subdirs and link them
+          # one level up so the paths resolve.
           # On Windows, ln -s doesn't work in Git Bash — use PowerShell junctions.
           if [ "$RUNNER_OS" = "Windows" ]; then
-            for repo in kolang-grammar kolang-wasm kolang-data; do
+            for repo in kolang-wasm kolang-data; do
               powershell -NoProfile -Command "New-Item -ItemType Junction -Path \"\$env:GITHUB_WORKSPACE\\..\\$repo\" -Target \"\$env:GITHUB_WORKSPACE\\$repo\""
             done
           else
-            ln -s "$GITHUB_WORKSPACE/kolang-grammar" "$GITHUB_WORKSPACE/../kolang-grammar"
             ln -s "$GITHUB_WORKSPACE/kolang-wasm" "$GITHUB_WORKSPACE/../kolang-wasm"
             ln -s "$GITHUB_WORKSPACE/kolang-data" "$GITHUB_WORKSPACE/../kolang-data"
           fi
