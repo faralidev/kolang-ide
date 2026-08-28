@@ -33,6 +33,7 @@ esbuild
       '@codemirror/language': nm('@codemirror/language/dist/index.js'),
       '@lezer/highlight': nm('@lezer/highlight/dist/index.js'),
       '@codemirror/view': nm('@codemirror/view/dist/index.js'),
+      '@codemirror/autocomplete': nm('@codemirror/autocomplete/dist/index.js'),
       '@codemirror/lang-python': nm('@codemirror/lang-python/dist/index.js'),
       '@codemirror/lang-json': nm('@codemirror/lang-json/dist/index.js'),
       '@codemirror/lang-html': nm('@codemirror/lang-html/dist/index.js'),
