@@ -29,13 +29,27 @@ jobs:
         with:
           repository: faralidev/kolang-wasm
           path: kolang-wasm
+      - uses: actions/checkout@v5
+        with:
+          repository: faralidev/kolang-data
+          path: kolang-data
       - name: "Place sibling repos where file: deps expect them"
+        shell: bash
         run: |
           # package.json uses file:../kolang-grammar and file:../kolang-wasm (sibling
-          # repos). actions/checkout can't write outside the workspace, so check them
-          # out into subdirs and symlink them one level up so the file: paths resolve.
-          ln -s "$GITHUB_WORKSPACE/kolang-grammar" "$GITHUB_WORKSPACE/../kolang-grammar"
-          ln -s "$GITHUB_WORKSPACE/kolang-wasm" "$GITHUB_WORKSPACE/../kolang-wasm"
+          # repos); build.cjs resolves ../kolang-data/kolang-docs.json. actions/checkout
+          # can't write outside the workspace, so check them out into subdirs and link
+          # them one level up so the file: paths resolve.
+          # On Windows, ln -s doesn't work in Git Bash — use cmd //c mklink /J (junction).
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            cmd //c mklink /J "$GITHUB_WORKSPACE\\..\\kolang-grammar" "$GITHUB_WORKSPACE\\kolang-grammar"
+            cmd //c mklink /J "$GITHUB_WORKSPACE\\..\\kolang-wasm" "$GITHUB_WORKSPACE\\kolang-wasm"
+            cmd //c mklink /J "$GITHUB_WORKSPACE\\..\\kolang-data" "$GITHUB_WORKSPACE\\kolang-data"
+          else
+            ln -s "$GITHUB_WORKSPACE/kolang-grammar" "$GITHUB_WORKSPACE/../kolang-grammar"
+            ln -s "$GITHUB_WORKSPACE/kolang-wasm" "$GITHUB_WORKSPACE/../kolang-wasm"
+            ln -s "$GITHUB_WORKSPACE/kolang-data" "$GITHUB_WORKSPACE/../kolang-data"
+          fi
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
