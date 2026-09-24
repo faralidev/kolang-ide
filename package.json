@@ -55,6 +55,6 @@
     "esbuild": "^0.24.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.0.0"
+    "@tauri-apps/cli": "^2.11.5"
   }
 }
